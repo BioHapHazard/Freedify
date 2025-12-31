@@ -1,0 +1,12 @@
+# Render deployment configuration for Freedify
+
+services:
+  - type: web
+    name: freedify
+    runtime: docker
+    plan: free
+    envVars:
+      - key: MP3_BITRATE
+        value: "320k"
+    healthCheckPath: /api/health
+    autoDeploy: true

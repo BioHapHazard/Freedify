@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+    <meta name="theme-color" content="#1a1a2e">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Freedify</title>
+    <link rel="manifest" href="/manifest.json">
+    <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/static/icon.svg">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <h1 class="logo">🎵 Freedify</h1>
+        </header>
+
+        <!-- Search Section -->
+        <section class="search-section">
+            <div class="search-container">
+                <input 
+                    type="text" 
+                    id="search-input" 
+                    class="search-input"
+                    placeholder="Search songs, albums, artists, or paste Spotify URL..."
+                    autocomplete="off"
+                    title="Search for music"
+                >
+                <button id="search-clear" class="search-clear" title="Clear search">×</button>
+            </div>
+            
+            <!-- Search Type Selector -->
+            <div class="search-type-selector">
+                <button class="type-btn active" data-type="track">Songs</button>
+                <button class="type-btn" data-type="album">Albums</button>
+                <button class="type-btn" data-type="artist">Artists</button>
+            </div>
+        </section>
+
+        <!-- Loading Overlay -->
+        <div id="loading-overlay" class="loading-overlay hidden">
+            <div class="loading-content">
+                <div class="spinner"></div>
+                <p id="loading-text">Loading...</p>
+            </div>
+        </div>
+
+        <!-- Error Message -->
+        <div id="error-message" class="error-message hidden">
+            <span class="error-icon">😕</span>
+            <p id="error-text">Something went wrong</p>
+            <button id="error-retry" class="btn-retry">Try Again</button>
+        </div>
+
+        <!-- Results Section -->
+        <section id="results-section" class="results-section">
+            <div id="results-container" class="results-container">
+                <!-- Search results will be inserted here -->
+                <div class="empty-state">
+                    <span class="empty-icon">🔍</span>
+                    <p>Search for your favorite music</p>
+                    <p class="hint">Or paste a Spotify link to an album or playlist</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Album/Playlist Detail View -->
+        <section id="detail-view" class="detail-view hidden">
+            <div class="detail-header">
+                <button id="back-btn" class="back-btn">← Back</button>
+                <button id="queue-all-btn" class="queue-all-btn">Add All to Queue</button>
+            </div>
+            <div id="detail-info" class="detail-info">
+                <!-- Album/playlist info will be inserted here -->
+            </div>
+            <div id="detail-tracks" class="detail-tracks">
+                <!-- Tracks will be inserted here -->
+            </div>
+        </section>
+
+        <!-- Queue Section -->
+        <section id="queue-section" class="queue-section hidden">
+            <div class="queue-header">
+                <h3>Queue <span id="queue-count">(0)</span></h3>
+                <button id="queue-clear" class="queue-clear">Clear</button>
+            </div>
+            <div id="queue-container" class="queue-container">
+                <!-- Queue items will be inserted here -->
+            </div>
+        </section>
+
+        <!-- Bottom Player -->
+        <div id="player-bar" class="player-bar hidden">
+            <div class="player-info">
+                <img id="player-art" class="player-art" src="" alt="Album art">
+                <div class="player-details">
+                    <p id="player-title" class="player-title">No track playing</p>
+                    <p id="player-artist" class="player-artist">-</p>
+                </div>
+            </div>
+            
+            <div class="player-controls">
+                <button id="prev-btn" class="control-btn" title="Previous">⏮</button>
+                <button id="play-btn" class="control-btn play-btn" title="Play/Pause">▶</button>
+                <button id="next-btn" class="control-btn" title="Next">⏭</button>
+                <button id="queue-btn" class="control-btn queue-toggle" title="Toggle Queue">☰</button>
+            </div>
+            
+            <div class="player-progress">
+                <span id="current-time" class="time">0:00</span>
+                <input type="range" id="progress-bar" class="progress-bar" min="0" max="100" value="0" title="Seek">
+                <span id="duration" class="time">0:00</span>
+            </div>
+        </div>
+
+        <!-- Audio Element -->
+        <audio id="audio-player" preload="auto"></audio>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
