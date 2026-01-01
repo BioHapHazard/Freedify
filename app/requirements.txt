@@ -6,3 +6,7 @@ ffmpeg-python>=0.2.0
 mutagen>=1.47.0
 pyotp>=2.9.0
 requests>=2.31.0
+google-generativeai>=0.8.0
+python-dotenv>=1.0.0
+yt-dlp>=2024.1.0
+packaging>=23.0
