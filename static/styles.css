@@ -1758,3 +1758,56 @@ body {
     padding: 0 20px;
 }
 
+/* ==================== Playlist Manager ==================== */
+.save-playlist-btn {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-dark) 100%);
+    color: white;
+    border: none;
+    padding: 10px 20px;
+    border-radius: var(--radius-full);
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 12px;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.save-playlist-btn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 4px 15px var(--accent-glow);
+}
+
+.delete-playlist-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: rgba(0, 0, 0, 0.6);
+    border: none;
+    border-radius: var(--radius-full);
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s, background 0.2s;
+}
+
+.playlist-item:hover .delete-playlist-btn {
+    opacity: 1;
+}
+
+.delete-playlist-btn:hover {
+    background: var(--error);
+}
+
+.playlist-item {
+    position: relative;
+}
+
+.favorites-btn {
+    background: linear-gradient(135deg, #ec4899 0%, #f43f5e 100%) !important;
+}
+
+.favorites-btn.active {
+    background: linear-gradient(135deg, #f43f5e 0%, #ec4899 100%) !important;
+}

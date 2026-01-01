@@ -14,6 +14,7 @@ const state = {
     volume: 1,
     muted: false,
     crossfadeDuration: 3, // seconds
+    playlists: JSON.parse(localStorage.getItem('freedify_playlists') || '[]'), // User playlists
 };
 
 // ========== DOM ELEMENTS ==========
@@ -112,10 +113,143 @@ typeBtns.forEach(btn => {
         btn.classList.add('active');
         state.searchType = btn.dataset.type;
         
+        // Special handling for Favorites tab
+        if (state.searchType === 'favorites') {
+            renderPlaylistsView();
+            return;
+        }
+        
         const query = searchInput.value.trim();
         if (query) performSearch(query);
     });
 });
+
+// ========== PLAYLIST MANAGEMENT ==========
+function savePlaylists() {
+    localStorage.setItem('freedify_playlists', JSON.stringify(state.playlists));
+}
+
+function createPlaylist(name, tracks = []) {
+    const playlist = {
+        id: 'playlist_' + Date.now(),
+        name: name,
+        created: new Date().toISOString(),
+        tracks: tracks.map(t => ({
+            id: t.id,
+            name: t.name,
+            artists: t.artists,
+            album: t.album || '',
+            album_art: t.album_art || t.image || '/static/icon.svg',
+            isrc: t.isrc || t.id,
+            duration: t.duration || '0:00'
+        }))
+    };
+    state.playlists.push(playlist);
+    savePlaylists();
+    showToast(`Created playlist "${name}"`);
+    return playlist;
+}
+
+function addToPlaylist(playlistId, track) {
+    const playlist = state.playlists.find(p => p.id === playlistId);
+    if (!playlist) return;
+    
+    // Avoid duplicates
+    if (playlist.tracks.some(t => t.id === track.id)) {
+        showToast('Track already in playlist');
+        return;
+    }
+    
+    playlist.tracks.push({
+        id: track.id,
+        name: track.name,
+        artists: track.artists,
+        album: track.album || '',
+        album_art: track.album_art || track.image || '/static/icon.svg',
+        isrc: track.isrc || track.id,
+        duration: track.duration || '0:00'
+    });
+    savePlaylists();
+    showToast(`Added to "${playlist.name}"`);
+}
+
+function deletePlaylist(playlistId) {
+    state.playlists = state.playlists.filter(p => p.id !== playlistId);
+    savePlaylists();
+    showToast('Playlist deleted');
+    renderPlaylistsView();
+}
+
+function renderPlaylistsView() {
+    hideLoading();
+    
+    if (state.playlists.length === 0) {
+        resultsContainer.innerHTML = `
+            <div class="empty-state">
+                <span class="empty-icon">❤️</span>
+                <p>No saved playlists yet</p>
+                <p style="font-size: 0.9em; opacity: 0.7;">Import a Spotify playlist and click "Save to Favorites"</p>
+            </div>
+        `;
+        return;
+    }
+    
+    const grid = document.createElement('div');
+    grid.className = 'results-grid';
+    
+    state.playlists.forEach(playlist => {
+        const trackCount = playlist.tracks.length;
+        const coverArt = playlist.tracks[0]?.album_art || '/static/icon.svg';
+        grid.innerHTML += `
+            <div class="album-item playlist-item" data-playlist-id="${playlist.id}">
+                <div class="album-art-container">
+                    <img src="${coverArt}" alt="${playlist.name}" class="album-art" loading="lazy">
+                    <div class="album-overlay">
+                        <button class="play-album-btn">▶</button>
+                    </div>
+                </div>
+                <div class="album-info">
+                    <div class="album-name">${playlist.name}</div>
+                    <div class="album-artist">${trackCount} track${trackCount !== 1 ? 's' : ''}</div>
+                </div>
+                <button class="delete-playlist-btn" title="Delete playlist">🗑️</button>
+            </div>
+        `;
+    });
+    
+    resultsContainer.innerHTML = '';
+    resultsContainer.appendChild(grid);
+    
+    // Click handlers
+    grid.querySelectorAll('.playlist-item').forEach(el => {
+        el.addEventListener('click', (e) => {
+            if (e.target.closest('.delete-playlist-btn')) {
+                e.stopPropagation();
+                const id = el.dataset.playlistId;
+                if (confirm('Delete this playlist?')) {
+                    deletePlaylist(id);
+                }
+                return;
+            }
+            const playlist = state.playlists.find(p => p.id === el.dataset.playlistId);
+            if (playlist) {
+                showPlaylistDetail(playlist);
+            }
+        });
+    });
+}
+
+function showPlaylistDetail(playlist) {
+    // Reuse the existing detail view
+    const albumData = {
+        id: playlist.id,
+        name: playlist.name,
+        artists: `${playlist.tracks.length} tracks`,
+        image: playlist.tracks[0]?.album_art || '/static/icon.svg',
+        is_playlist: true
+    };
+    showDetailView(albumData, playlist.tracks);
+}
 
 async function performSearch(query) {
     if (!query) return;
@@ -652,14 +786,29 @@ function showDetailView(item, tracks) {
     const stats = item.total_tracks ? `${item.total_tracks} tracks` : 
                   item.followers ? `${(item.followers / 1000).toFixed(0)}K followers` : '';
     
+    // Check if this is already a saved playlist (to avoid re-saving)
+    const isSavedPlaylist = item.id && item.id.startsWith('playlist_');
+    
     detailInfo.innerHTML = `
         <img class="detail-art${isArtist ? ' artist-art' : ''}" src="${image}" alt="Cover">
         <div class="detail-meta">
             <p class="detail-name">${escapeHtml(item.name)}</p>
             <p class="detail-artist">${escapeHtml(subtitle)}</p>
             <p class="detail-stats">${stats}</p>
+            ${!isSavedPlaylist && tracks.length > 0 ? `<button id="save-playlist-btn" class="save-playlist-btn">❤️ Save to Favorites</button>` : ''}
         </div>
     `;
+    
+    // Add save playlist handler
+    const saveBtn = $('#save-playlist-btn');
+    if (saveBtn) {
+        saveBtn.addEventListener('click', () => {
+            const name = prompt('Enter playlist name:', item.name || 'My Playlist');
+            if (name) {
+                createPlaylist(name, state.detailTracks);
+            }
+        });
+    }
     
     // Render tracks
     detailTracks.innerHTML = tracks.map((t, i) => `

@@ -25,9 +25,22 @@ def ensure_cache_dir():
 
 
 def get_cache_path(isrc: str, format: str = "mp3") -> Path:
-    """Get the cache file path for a given ISRC."""
+    """Get the cache file path for a given ISRC.
+    
+    For LINK: prefixed IDs (which can be very long base64 strings),
+    we hash the ID to create a shorter, valid filename.
+    """
+    import hashlib
     ensure_cache_dir()
-    return CACHE_DIR / f"{isrc}.{format}"
+    
+    # Hash long IDs to prevent "filename too long" errors
+    if len(isrc) > 100 or isrc.startswith("LINK:"):
+        safe_name = hashlib.md5(isrc.encode()).hexdigest()
+    else:
+        # Sanitize the ISRC for use as filename
+        safe_name = isrc.replace("/", "_").replace(":", "_")
+    
+    return CACHE_DIR / f"{safe_name}.{format}"
 
 
 def is_cached(isrc: str, format: str = "mp3") -> bool:

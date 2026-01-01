@@ -47,6 +47,13 @@ Stream music from anywhere. Search songs, albums, artists, or paste URLs from Sp
 - **Smart Preloading** - Next track buffers automatically
 - **Click to Navigate** - Click track/artist name to search
 
+### ❤️ Playlist Manager
+- **Save Playlists** - Import Spotify/Bandcamp playlist, click "❤️ Save to Favorites"
+- **Favorites Tab** - Click the ❤️ Favorites button to view all saved playlists
+- **Instant Recall** - Click any saved playlist to load tracks, then Queue All or Shuffle
+- **Persistent Storage** - Playlists stored in browser localStorage (survives restarts)
+- **Delete Playlists** - Hover over playlist and click 🗑️ to remove
+
 ### 📱 Mobile Ready
 - **PWA Support** - Install on your phone's home screen
 - **Responsive Design** - Works on any screen size
