@@ -1458,6 +1458,26 @@ if (fsToggleBtn) fsToggleBtn.addEventListener('click', toggleFullScreen);
 if (fsCloseBtn) fsCloseBtn.addEventListener('click', toggleFullScreen);
 if (fsPlayBtn) fsPlayBtn.addEventListener('click', () => playBtn.click());
 if (fsPrevBtn) fsPrevBtn.addEventListener('click', () => prevBtn.click());
+
+// More Menu Controls
+const moreControlsBtn = $('#more-controls-btn');
+const playerMoreMenu = $('#player-more-menu');
+
+if (moreControlsBtn && playerMoreMenu) {
+    moreControlsBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        playerMoreMenu.classList.toggle('hidden');
+    });
+
+    // Close menu when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!playerMoreMenu.classList.contains('hidden') && 
+            !playerMoreMenu.contains(e.target) && 
+            e.target !== moreControlsBtn) {
+            playerMoreMenu.classList.add('hidden');
+        }
+    });
+}
 if (fsNextBtn) fsNextBtn.addEventListener('click', () => nextBtn.click());
 
 if (fsProgressBar) {
@@ -1741,7 +1761,7 @@ const EQ_BANDS = [
     { id: 'eq-230', freq: 230, type: 'peaking' },
     { id: 'eq-910', freq: 910, type: 'peaking' },
     { id: 'eq-3600', freq: 3600, type: 'peaking' },
-    { id: 'eq-14000', freq: 14000, type: 'highshelf' }
+    { id: 'eq-7500', freq: 7500, type: 'highshelf' }
 ];
 
 // Presets (dB values for each band)

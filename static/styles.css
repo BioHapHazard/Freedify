@@ -994,21 +994,32 @@ body {
     right: 0;
     background: var(--bg-secondary);
     border-top: 1px solid var(--bg-tertiary);
-    padding: var(--spacing-md);
-    padding-bottom: calc(var(--spacing-md) + var(--safe-bottom));
+    padding: 12px 16px;
+    padding-bottom: calc(12px + var(--safe-bottom));
     z-index: 100;
+}
+
+.player-main-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between; /* Art/Info on left, Controls on right */
+    gap: 16px;
+    margin-bottom: 8px;
+    width: 100%;
 }
 
 .player-info {
     display: flex;
     align-items: center;
-    gap: var(--spacing-md);
-    margin-bottom: var(--spacing-sm);
+    gap: 12px;
+    flex: 1;
+    min-width: 0; /* Allow text truncate */
+    margin-bottom: 0; /* Reset */
 }
 
 .player-art {
-    width: 48px;
-    height: 48px;
+    width: 42px;
+    height: 42px;
     border-radius: var(--radius-sm);
     object-fit: cover;
     background: var(--bg-tertiary);
@@ -1020,6 +1031,7 @@ body {
 }
 
 .player-title {
+    font-size: 0.95rem;
     font-weight: 600;
     white-space: nowrap;
     overflow: hidden;
@@ -1028,18 +1040,53 @@ body {
 
 .player-artist {
     color: var(--text-secondary);
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-.player-controls {
+.player-controls-primary {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+}
+
+/* More Menu Popout */
+.player-more-menu {
+    position: absolute;
+    bottom: 90px;
+    right: 16px;
+    background: var(--bg-elevated);
+    border-radius: 16px;
+    padding: 16px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.5);
+    z-index: 2000;
+    width: 280px;
+    animation: slideUp 0.2s ease;
+    border: 1px solid var(--bg-tertiary);
+}
+
+.more-menu-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-bottom: 16px;
+    justify-items: center;
+}
+
+.more-menu-volume {
+    padding-top: 12px;
+    border-top: 1px solid var(--bg-tertiary);
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: var(--spacing-md);
-    margin-bottom: var(--spacing-sm);
+}
+
+.more-menu-volume .volume-slider {
+    width: 100%;
+    height: 6px;
 }
 
 .control-btn {

@@ -65,7 +65,7 @@ Stream music from anywhere. Search songs, albums, artists, or paste URLs from Sp
 - **Delete Playlists** - Hover over playlist and click 🗑️ to remove
 
 ### 🎛️ Equalizer
-- **5-Band EQ** - Adjust 60Hz, 230Hz, 910Hz, 3.6kHz, 14kHz
+- **5-Band EQ** - Adjust 60Hz, 230Hz, 910Hz, 3.6kHz, 7.5kHz
 - **Bass Boost** - Extra low-end punch
 - **Volume Boost** - Up to +6dB gain
 - **Presets** - Flat, Bass Boost, Treble, Vocal

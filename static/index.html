@@ -179,38 +179,47 @@
 
         <!-- Bottom Player -->
         <div id="player-bar" class="player-bar hidden">
-            <div class="player-info">
-                <img id="player-art" class="player-art" src="" alt="Album art">
-                <div class="player-details">
-                    <p id="player-title" class="player-title">No track playing</p>
-                    <p id="player-artist" class="player-artist">-</p>
+            <!-- Main visible row (Art + Info + Primary Controls) -->
+            <div class="player-main-row">
+                <div class="player-info">
+                    <img id="player-art" class="player-art" src="" alt="Album art">
+                    <div class="player-details">
+                        <p id="player-title" class="player-title">No track playing</p>
+                        <p id="player-artist" class="player-artist">-</p>
+                    </div>
                 </div>
-                <!-- DJ Info Container -->
-                <div id="player-dj-info" class="player-dj-info hidden"></div>
+                
+                <div class="player-controls-primary">
+                    <button id="prev-btn" class="control-btn" title="Previous">⏮</button>
+                    <button id="play-btn" class="control-btn play-btn" title="Play/Pause">▶</button>
+                    <button id="next-btn" class="control-btn" title="Next">⏭</button>
+                    <button id="queue-btn" class="control-btn queue-toggle" title="Queue">☰</button>
+                    <button id="fs-toggle-btn" class="control-btn" title="Full Screen">⤢</button>
+                    <button id="more-controls-btn" class="control-btn" title="More Options">⋮</button>
+                </div>
             </div>
-            
-            <div class="player-controls">
-                <button id="shuffle-queue-btn" class="control-btn" title="Shuffle Queue">⤭</button>
-                <button id="repeat-btn" class="control-btn" title="Repeat: Off">⟳</button>
-                <button id="prev-btn" class="control-btn" title="Previous">⏮</button>
-                <button id="play-btn" class="control-btn play-btn" title="Play/Pause">▶</button>
-                <button id="next-btn" class="control-btn" title="Next">⏭</button>
-                <button id="download-current-btn" class="control-btn" title="Download Current Track">⬇</button>
-                <button id="ai-radio-btn" class="control-btn ai-radio-btn" title="AI Radio - Auto-add similar tracks">📻</button>
-                <button id="queue-btn" class="control-btn queue-toggle" title="Toggle Queue">☰</button>
-                <button id="fs-toggle-btn" class="control-btn" title="Full Screen">⤢</button>
-            </div>
-            
+
+            <!-- Progress Bar -->
             <div class="player-progress">
                 <span id="current-time" class="time">0:00</span>
                 <input type="range" id="progress-bar" class="progress-bar" min="0" max="100" value="0" title="Seek">
                 <span id="duration" class="time">0:00</span>
             </div>
             
-            <div class="volume-controls">
-                <button id="mute-btn" class="control-btn volume-btn" title="Mute">🔊</button>
-                <input type="range" id="volume-slider" class="volume-slider" min="0" max="100" value="100" title="Volume">
-                <button id="eq-toggle-btn" class="control-btn eq-btn" title="Equalizer">🎛️</button>
+            <!-- More Menu (Popup) -->
+            <div id="player-more-menu" class="player-more-menu hidden">
+                <div class="more-menu-grid">
+                    <button id="shuffle-queue-btn" class="control-btn" title="Shuffle Queue">⤭</button>
+                    <button id="repeat-btn" class="control-btn" title="Repeat: Off">⟳</button>
+                    <button id="download-current-btn" class="control-btn" title="Download Current Track">⬇</button>
+                    <button id="ai-radio-btn" class="control-btn ai-radio-btn" title="AI Radio">📻</button>
+                    <button id="mute-btn" class="control-btn volume-btn" title="Mute">🔊</button>
+                    <button id="eq-toggle-btn" class="control-btn eq-btn" title="Equalizer">🎛️</button>
+                </div>
+                <!-- Volume slider inside menu for mobile compactness -->
+                <div class="more-menu-volume">
+                     <input type="range" id="volume-slider" class="volume-slider" min="0" max="100" value="100" title="Volume">
+                </div>
             </div>
         </div>
 
@@ -246,8 +255,8 @@
                     <span class="eq-label">3.6kHz</span>
                 </div>
                 <div class="eq-band">
-                    <input type="range" id="eq-14000" class="eq-slider" min="-12" max="12" value="0">
-                    <span class="eq-label">14kHz</span>
+                    <input type="range" id="eq-7500" class="eq-slider" min="-12" max="12" value="0">
+                    <span class="eq-label">7.5kHz</span>
                 </div>
             </div>
             
