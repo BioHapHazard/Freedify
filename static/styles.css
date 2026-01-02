@@ -754,6 +754,63 @@ body {
     white-space: nowrap;
 }
 
+.type-btn.active {
+    background: var(--text-primary);
+    color: var(--bg-primary);
+}
+
+.type-btn:hover:not(.active) {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+}
+
+/* Search More Menu */
+.search-more-menu {
+    position: absolute;
+    top: 140px; /* Adjust based on header */
+    right: 50%;
+    transform: translateX(50%);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    z-index: 1000;
+    min-width: 180px;
+    margin-right: -100px; /* Offset to align better with button */
+}
+
+.search-more-menu.hidden {
+    display: none;
+}
+
+.menu-item {
+    text-align: left;
+    padding: 8px 16px;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    cursor: pointer;
+    border-radius: 8px;
+    transition: background 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.menu-item:hover {
+    background: var(--bg-elevated);
+}
+
+.menu-item.active {
+    color: var(--accent);
+    background: rgba(var(--accent-rgb), 0.1);
+}
+
 .type-btn:hover {
     background: var(--bg-elevated);
     color: var(--text-primary);

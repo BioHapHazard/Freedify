@@ -113,13 +113,42 @@ searchClear.addEventListener('click', () => {
     searchInput.focus();
 });
 
+const searchMoreBtn = $('#search-more-btn');
+const searchMoreMenu = $('#search-more-menu');
+
+// Toggle Search More Menu
+if (searchMoreBtn) {
+    searchMoreBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        searchMoreMenu.classList.toggle('hidden');
+    });
+}
+
+// Close menu when clicking elsewhere
+document.addEventListener('click', (e) => {
+    if (searchMoreMenu && !searchMoreMenu.contains(e.target) && e.target !== searchMoreBtn) {
+        searchMoreMenu.classList.add('hidden');
+    }
+});
+
 // Search type selector
-typeBtns.forEach(btn => {
+// Re-select all type buttons including new menu items
+const allTypeBtns = document.querySelectorAll('.type-btn, .type-btn-menu');
+
+allTypeBtns.forEach(btn => {
     btn.addEventListener('click', () => {
-        typeBtns.forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        state.searchType = btn.dataset.type;
+        if (btn.id === 'search-more-btn') return; // Skip the toggle button itself
         
+        allTypeBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        
+        // If it's a menu item, highlight the "More" button too as a visual indicator
+        if (btn.classList.contains('type-btn-menu')) {
+            searchMoreBtn.classList.add('active');
+            searchMoreMenu.classList.add('hidden'); // Close menu on selection
+        }
+
+        state.searchType = btn.dataset.type;
         
         // Special types
         if (state.searchType === 'favorites') {
