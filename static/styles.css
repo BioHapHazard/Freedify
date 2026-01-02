@@ -1558,6 +1558,23 @@ body {
     opacity: 1;
 }
 
+.queue-heart-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    font-size: 1rem;
+    padding: 0.25rem;
+    cursor: pointer;
+    opacity: 0.6;
+    flex-shrink: 0;
+    transition: opacity 0.2s, transform 0.2s;
+}
+
+.queue-heart-btn:hover {
+    opacity: 1;
+    transform: scale(1.2);
+}
+
 /* Fullscreen Player */
 .fullscreen-player {
     position: fixed;

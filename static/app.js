@@ -1134,6 +1134,12 @@ function togglePlay() {
 }
 
 function playNext() {
+    const currentTrack = state.queue[state.currentIndex];
+    // Podcast: seek +15s instead of next track
+    if (currentTrack && currentTrack.source === 'podcast') {
+        audioPlayer.currentTime = Math.min(audioPlayer.duration || 0, audioPlayer.currentTime + 15);
+        return;
+    }
     if (state.currentIndex < state.queue.length - 1) {
         state.currentIndex++;
         loadTrack(state.queue[state.currentIndex]);
@@ -1141,6 +1147,12 @@ function playNext() {
 }
 
 function playPrevious() {
+    const currentTrack = state.queue[state.currentIndex];
+    // Podcast: seek -15s instead of prev track
+    if (currentTrack && currentTrack.source === 'podcast') {
+        audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - 15);
+        return;
+    }
     if (audioPlayer.currentTime > 3) {
         audioPlayer.currentTime = 0;
     } else if (state.currentIndex > 0) {
@@ -1214,7 +1226,7 @@ queueClear.addEventListener('click', () => {
     updateQueueUI();
 });
 
-// Delegated click handler for queue items (handles both play and remove)
+// Delegated click handler for queue items (handles play, remove, and add-to-playlist)
 queueContainer.addEventListener('click', (e) => {
     // Check if clicked on remove button
     const removeBtn = e.target.closest('.queue-remove-btn');
@@ -1222,6 +1234,18 @@ queueContainer.addEventListener('click', (e) => {
         e.stopPropagation();
         const index = parseInt(removeBtn.dataset.index, 10);
         window.removeFromQueue(index);
+        return;
+    }
+    
+    // Check if clicked on heart button (add to playlist)
+    const heartBtn = e.target.closest('.queue-heart-btn');
+    if (heartBtn) {
+        e.stopPropagation();
+        const index = parseInt(heartBtn.dataset.index, 10);
+        const track = state.queue[index];
+        if (track && window.openAddToPlaylistModal) {
+            window.openAddToPlaylistModal(track);
+        }
         return;
     }
     
@@ -1249,6 +1273,7 @@ function updateQueueUI() {
                 <p class="track-name" style="font-size:0.875rem;">${escapeHtml(track.name)}</p>
                 <p class="track-artist">${escapeHtml(track.artists)}</p>
             </div>
+            <button class="queue-heart-btn" data-action="add-to-playlist" data-index="${i}" title="Add to Playlist">🩷</button>
             <button class="queue-remove-btn" data-action="remove" data-index="${i}" title="Remove">×</button>
         </div>
     `).join('');
@@ -1486,7 +1511,41 @@ function updateFSPlayBtn() {
 if (fsToggleBtn) fsToggleBtn.addEventListener('click', toggleFullScreen);
 if (fsCloseBtn) fsCloseBtn.addEventListener('click', toggleFullScreen);
 if (fsPlayBtn) fsPlayBtn.addEventListener('click', () => playBtn.click());
-if (fsPrevBtn) fsPrevBtn.addEventListener('click', () => prevBtn.click());
+
+// FS Prev/Next - seek ±15s for podcasts, otherwise prev/next track
+const fsHeartBtn = $('#fs-heart-btn');
+if (fsPrevBtn) {
+    fsPrevBtn.addEventListener('click', () => {
+        const currentTrack = state.queue[state.currentIndex];
+        if (currentTrack && currentTrack.source === 'podcast') {
+            audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - 15);
+        } else {
+            prevBtn.click();
+        }
+    });
+}
+if (fsNextBtn) {
+    fsNextBtn.addEventListener('click', () => {
+        const currentTrack = state.queue[state.currentIndex];
+        if (currentTrack && currentTrack.source === 'podcast') {
+            audioPlayer.currentTime = Math.min(audioPlayer.duration, audioPlayer.currentTime + 15);
+        } else {
+            nextBtn.click();
+        }
+    });
+}
+
+// FS Heart button - add current track to playlist
+if (fsHeartBtn) {
+    fsHeartBtn.addEventListener('click', () => {
+        const currentTrack = state.queue[state.currentIndex];
+        if (currentTrack && window.openAddToPlaylistModal) {
+            window.openAddToPlaylistModal(currentTrack);
+        } else {
+            showToast('No track playing');
+        }
+    });
+}
 
 // More Menu Controls
 const moreControlsBtn = $('#more-controls-btn');
