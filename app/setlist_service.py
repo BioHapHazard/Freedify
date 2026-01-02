@@ -197,7 +197,7 @@ class SetlistService:
             "url": item.get("url", ""),
             "source": "setlist.fm",
             # For display
-            "album_art": "/static/setlist-icon.svg",  # Placeholder
+            "album_art": "/static/icon.svg",  # Use default icon
             "total_tracks": song_count,
             "release_date": iso_date,
         }
@@ -244,10 +244,62 @@ class SetlistService:
             base["audio_url"] = f"https://phish.in/{base['iso_date']}"
         else:
             base["audio_source"] = "archive.org"
-            # Format for Archive search: "Artist Name YYYY-MM-DD"
+            # We'll set audio_url after searching for the best version
             base["audio_search"] = f"{base['artists']} {base['iso_date']}"
         
         return base
+    
+    async def find_best_archive_show(self, artist: str, iso_date: str) -> Optional[str]:
+        """Search Archive.org for the best (most downloaded) version of a show."""
+        try:
+            # Map common artist names to Archive.org collections
+            artist_lower = artist.lower()
+            collection = None
+            
+            collection_map = {
+                "grateful dead": "GratefulDead",
+                "dead": "GratefulDead",
+                "billy strings": "BillyStrings",
+                "ween": "Ween",
+                "king gizzard": "KingGizzardAndTheLizardWizard",
+                "kglw": "KingGizzardAndTheLizardWizard",
+            }
+            
+            for key, val in collection_map.items():
+                if key in artist_lower:
+                    collection = val
+                    break
+            
+            if not collection:
+                # Fallback: search by creator
+                query = f'creator:"{artist}" AND date:{iso_date}* AND mediatype:etree'
+            else:
+                query = f'collection:{collection} AND date:{iso_date}* AND mediatype:etree'
+            
+            params = {
+                "q": query,
+                "fl[]": ["identifier", "downloads"],
+                "sort[]": "downloads desc",  # Sort by most downloads
+                "rows": 1,  # Just get the top one
+                "output": "json",
+            }
+            
+            response = await self.client.get("https://archive.org/advancedsearch.php", params=params)
+            if response.status_code != 200:
+                return None
+            
+            data = response.json()
+            docs = data.get("response", {}).get("docs", [])
+            
+            if docs:
+                identifier = docs[0].get("identifier")
+                return f"https://archive.org/details/{identifier}"
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Archive.org search error: {e}")
+            return None
     
     async def close(self):
         """Close the HTTP client."""

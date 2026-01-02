@@ -693,8 +693,8 @@ if (setlistPlayBtn) {
             setlistModal.classList.add('hidden');
             // Check if we have a direct audio source URL or need to search
             if (currentSetlist.audio_url) {
-                // Direct import (Phish.in)
-                importUrl(currentSetlist.audio_url);
+                // Direct import (Phish.in) - use performSearch which handles URLs
+                performSearch(currentSetlist.audio_url);
             } else if (currentSetlist.audio_search) {
                 // Search Archive.org (Artist Date)
                 performSearch(currentSetlist.audio_search);
@@ -706,18 +706,30 @@ if (setlistPlayBtn) {
 }
 
 async function openSetlistModal(setlistId) {
+    // Get modal elements fresh each time
+    const modal = document.getElementById('setlist-modal');
+    const infoEl = document.getElementById('setlist-info');
+    const tracksEl = document.getElementById('setlist-tracks');
+    const playBtn = document.getElementById('setlist-play-btn');
+    
+    if (!modal) {
+        showError("Setlist modal not available");
+        return;
+    }
+    
     showLoading('Fetching setlist...');
     try {
         // Use existing endpoint which returns formatted setlist
         const response = await fetch(`/api/album/${setlistId}`);
         const setlist = await response.json();
+        
         if (!response.ok) throw new Error(setlist.detail);
         
         currentSetlist = setlist;
         hideLoading();
         
         // Render Modal Content
-        setlistInfo.innerHTML = `
+        infoEl.innerHTML = `
             <div style="text-align: center; margin-bottom: 20px;">
                 <h2 style="font-size: 1.5rem; margin-bottom: 4px;">${escapeHtml(setlist.artists)}</h2>
                 <p style="font-size: 1.1rem; color: var(--text-secondary); margin-bottom: 4px;">${escapeHtml(setlist.venue)}</p>
@@ -728,7 +740,7 @@ async function openSetlistModal(setlistId) {
             </div>
         `;
         
-        setlistTracks.innerHTML = setlist.tracks.map((track, i) => `
+        tracksEl.innerHTML = setlist.tracks.map((track, i) => `
             <div class="setlist-track-item" style="display: flex; padding: 8px 0; border-bottom: 1px solid var(--border-color);">
                 <span style="color: var(--text-tertiary); width: 30px; text-align: right; margin-right: 12px; font-variant-numeric: tabular-nums;">${i + 1}</span>
                 <div style="flex: 1;">
@@ -744,12 +756,12 @@ async function openSetlistModal(setlistId) {
         
         // Show audio source button label
         if (setlist.audio_source === 'phish.in') {
-            setlistPlayBtn.textContent = "🎧 Listen on Phish.in";
+            playBtn.textContent = "🎧 Listen on Phish.in";
         } else {
-            setlistPlayBtn.textContent = "🎧 Search on Archive.org";
+            playBtn.textContent = "🎧 Search on Archive.org";
         }
         
-        setlistModal.classList.remove('hidden');
+        modal.classList.remove('hidden');
         
     } catch (error) {
         console.error(error);
@@ -1027,19 +1039,7 @@ function renderArtistCard(artist) {
 }
 
 // ========== ALBUM / ARTIST / PLAYLIST DETAIL VIEW ==========
-async function openAlbum(albumId) {
-    showLoading('Loading album...');
-    try {
-        const response = await fetch(`/api/album/${albumId}`);
-        const album = await response.json();
-        if (!response.ok) throw new Error(album.detail);
-        
-        hideLoading();
-        showDetailView(album, album.tracks);
-    } catch (error) {
-        showError('Failed to load album');
-    }
-}
+// Note: openAlbum is defined earlier with setlist modal support
 
 async function openArtist(artistId) {
     showLoading('Loading artist...');
@@ -3613,41 +3613,17 @@ async function renderRecommendations() {
             return;
         }
         
-        // We get MBIDs, but we need to resolve them to tracks via Deezer/Spotify/etc.
-        // For now, we'll try to use the setlist/album search UI but for "Recommended Tracks"
-        // Wait, the API returns MBIDs. We need to display them. 
-        // The current backend simplistic implementation just returns MBIDs.
-        // We should assume the user might not get rich data immediately.
-        // Ideally we would look these up.
-        // Let's modify the backend service to lookup track details from MBID if possible, OR
-        // just assume we need to search for them.
-        
-        // Actually, let's just show a simple list for now that, when clicked, searches for that item.
-        // Or better, let's update the backend service to fetch metadata for these MBIDs first.
-        // For now, I'll display what I have.
-        
         resultsContainer.innerHTML = `
             <div class="results-header">
                 <h2>✨ Recommended for You</h2>
                 <span class="results-count">${data.count} tracks</span>
             </div>
             <div class="tracks-grid">
-                <!-- We need separate lookup 
-                     The current ListenBrainz service in python only returns MBIDs.
-                     Realistically we need to fetch metadata.
-                -->
                 <p style="grid-column: 1/-1; text-align: center; color: var(--text-secondary);">
                     (Recommendations loaded. Metadata lookup coming in next update.)
                 </p>
             </div>
         `;
-        
-        // Ideally we would map these to search queries.
-        // Let's do client-side rendering where we treat them as search items if we had names.
-        // Since we only have MBIDs, we can't do much without looking them up.
-        
-        // REVISION: I should update listenbrainz_service.py to lookup track info for the MBIDs
-        // using MusicBrainz service.
     } catch (e) {
         console.error(e);
         showError('Failed to load recommendations');

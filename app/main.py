@@ -276,9 +276,18 @@ async def get_album(album_id: str):
             if album and album.get("audio_source") == "phish.in":
                 # Phish show - fetch audio from phish.in
                 album["audio_available"] = True
-            elif album and album.get("audio_search"):
-                # Other artist - will search Archive.org
-                album["audio_available"] = True
+            elif album and album.get("audio_source") == "archive.org":
+                # Other artist - find best Archive.org version
+                archive_url = await setlist_service.find_best_archive_show(
+                    album.get("artists", ""),
+                    album.get("iso_date", "")
+                )
+                if archive_url:
+                    album["audio_url"] = archive_url
+                    album["audio_available"] = True
+                else:
+                    # Fallback to search if no direct match
+                    album["audio_available"] = True
         else:
             # Unknown source - try Deezer
             album = await deezer_service.get_album(album_id)

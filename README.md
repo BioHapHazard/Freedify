@@ -165,6 +165,19 @@ If you hit rate limits, you can add your own keys:
 
 ---
 
+## Setlist.fm Search Examples:
+
+Select **More → Setlists** and search using these formats:
+
+- `Phish 31-12-2025` - Specific date (DD-MM-YYYY format)
+- `Phish 2025-12-31` - Specific date (YYYY-MM-DD format) 
+- `Phish December 31 2025` - Natural language date
+- `Pearl Jam 2024` - All shows from a year
+
+Click a result to see the full setlist with song annotations, then click "Listen on Phish.in" or "Search on Archive.org" to play the show.
+
+---
+
 ## Supported URL Sources:
 
 - Spotify (playlists, albums, tracks)
