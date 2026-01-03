@@ -52,6 +52,7 @@
         <header class="header">
             <h1 class="logo">🎵 Freedify</h1>
             <div class="header-actions">
+                <button id="hifi-btn" class="header-btn" title="HiFi Mode - Stream lossless FLAC (faster startup, more data)">HiFi</button>
                 <label for="file-input" class="header-btn" title="Add Local Songs (MP3/FLAC)" style="cursor: pointer; display: inline-flex; align-items: center; justify-content: center;">📂</label>
                 <button id="dj-mode-btn" class="header-btn" title="DJ Mode">🎧</button>
                 <button id="sync-btn" class="header-btn" title="Sync with Google Drive">☁️</button>
@@ -194,7 +195,10 @@
                     <img id="player-art" class="player-art" src="" alt="Album art">
                     <div class="player-details">
                         <p id="player-title" class="player-title">No track playing</p>
-                        <p id="player-artist" class="player-artist">-</p>
+                        <div class="player-meta-row">
+                            <p id="player-artist" class="player-artist">-</p>
+                            <span id="audio-format-badge" class="audio-format-badge hidden">MP3</span>
+                        </div>
                     </div>
                 </div>
                 
@@ -418,6 +422,6 @@
     <script src="static/jsmediatags.min.js"></script>
     <script src="https://apis.google.com/js/api.js"></script>
     <script src="https://accounts.google.com/gsi/client"></script>
-    <script src="/static/app.js?v=0102D"></script>
+    <script src="/static/app.js?v=0103A"></script>
 </body>
 </html>

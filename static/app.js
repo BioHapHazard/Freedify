@@ -17,6 +17,7 @@ const state = {
     playlists: JSON.parse(localStorage.getItem('freedify_playlists') || '[]'), // User playlists
     scrobbledCurrent: false, // Track if current song was scrobbled
     listenBrainzConfig: { valid: false, username: null }, // LB status
+    hifiMode: localStorage.getItem('freedify_hifi') === 'true', // HiFi FLAC streaming mode
 };
 
 // ========== DOM ELEMENTS ==========
@@ -1172,8 +1173,12 @@ shuffleBtn.addEventListener('click', () => {
 
 // ========== PLAYBACK ==========
 function playTrack(track) {
+    if (!track || !track.id) {
+        console.error("playTrack called with invalid track:", track);
+        return;
+    }
     // Add to queue if not already there
-    const existingIndex = state.queue.findIndex(t => t.id === track.id);
+    const existingIndex = state.queue.findIndex(t => t && t.id === track.id);
     if (existingIndex === -1) {
         state.queue.push(track);
         state.currentIndex = state.queue.length - 1;
@@ -1221,8 +1226,49 @@ function updatePlayerUI() {
     } else if (playerDJInfo) {
         playerDJInfo.classList.add('hidden');
     }
+}
 
-    updateMediaSession(track);
+// Update audio format badge (FLAC/MP3)
+async function updateFormatBadge(audioSrc) {
+    const badge = document.getElementById('audio-format-badge');
+    if (!badge) return;
+    
+    // For local files, show nothing
+    if (!audioSrc || audioSrc.startsWith('blob:') || audioSrc.startsWith('file:')) {
+        badge.classList.add('hidden');
+        return;
+    }
+    
+    try {
+        // Use HEAD request to check content-type without downloading
+        const response = await fetch(audioSrc, { method: 'HEAD' });
+        
+        // Check for explicit X-Audio-Format header first (from our backend)
+        const audioFormat = response.headers.get('x-audio-format');
+        const contentType = response.headers.get('content-type') || '';
+        
+        badge.classList.remove('hidden', 'flac', 'mp3');
+        
+        if (audioFormat === 'FLAC' || contentType.includes('flac')) {
+            badge.textContent = 'FLAC';
+            badge.classList.add('flac');
+        } else if (audioFormat === 'MP3' || contentType.includes('mpeg') || contentType.includes('mp3')) {
+            badge.textContent = 'MP3';
+            badge.classList.add('mp3');
+        } else if (contentType.includes('mp4') || contentType.includes('m4a')) {
+            badge.textContent = 'AAC';
+            badge.classList.add('flac'); // Use flac styling for lossless-quality
+        } else if (contentType.includes('webm') || contentType.includes('opus')) {
+            badge.textContent = 'OPUS';
+            badge.classList.add('mp3'); // Use mp3 styling for other lossy
+        } else {
+            badge.textContent = 'AUDIO';
+            badge.classList.add('mp3');
+        }
+    } catch (e) {
+        // On error, just hide badge
+        badge.classList.add('hidden');
+    }
 }
 
 async function loadTrack(track) {
@@ -1240,7 +1286,8 @@ async function loadTrack(track) {
     if (track.is_local && track.src) {
         audioPlayer.src = track.src;
     } else {
-        audioPlayer.src = `/api/stream/${track.isrc || track.id}?q=${encodeURIComponent(track.name + ' ' + track.artists)}`;
+        const hifiParam = state.hifiMode ? '&hifi=true' : '';
+        audioPlayer.src = `/api/stream/${track.isrc || track.id}?q=${encodeURIComponent(track.name + ' ' + track.artists)}${hifiParam}`;
     }
     
     try {
@@ -1257,6 +1304,9 @@ async function loadTrack(track) {
         state.isPlaying = true;
         updatePlayButton();
         updateMediaSession(track);
+        
+        // Detect audio format and update badge
+        updateFormatBadge(audioPlayer.src);
         
     } catch (error) {
         console.error('Playback error:', error);
@@ -1446,12 +1496,12 @@ function updateQueueUI() {
         return;
     }
     
-    queueContainer.innerHTML = state.queue.map((track, i) => `
+    queueContainer.innerHTML = state.queue.filter(t => t).map((track, i) => `
         <div class="queue-item" data-index="${i}">
             <img class="track-album-art" src="${track.album_art || '/static/icon.svg'}" alt="Art" style="width:40px;height:40px;">
             <div class="track-info">
-                <p class="track-name" style="font-size:0.875rem;">${escapeHtml(track.name)}</p>
-                <p class="track-artist">${escapeHtml(track.artists)}</p>
+                <p class="track-name" style="font-size:0.875rem;">${escapeHtml(track.name || 'Unknown')}</p>
+                <p class="track-artist">${escapeHtml(track.artists || '')}</p>
             </div>
             <button class="queue-heart-btn" data-action="add-to-playlist" data-index="${i}" title="Add to Playlist">🩷</button>
             <button class="queue-remove-btn" data-action="remove" data-index="${i}" title="Remove">×</button>
@@ -1479,7 +1529,8 @@ function preloadNextTrack() {
     console.log('Preloading next track:', nextTrack.name);
     
     const query = `${nextTrack.name} ${nextTrack.artists}`;
-    const streamUrl = `/api/stream/${nextTrack.isrc || nextTrack.id}?q=${encodeURIComponent(query)}`;
+    const hifiParam = state.hifiMode ? '&hifi=true' : '';
+    const streamUrl = `/api/stream/${nextTrack.isrc || nextTrack.id}?q=${encodeURIComponent(query)}${hifiParam}`;
     
     // Fetch to trigger backend cache and browser cache
     fetch(streamUrl).then(res => {
@@ -2633,6 +2684,38 @@ document.addEventListener('keydown', (e) => {
         hidePodcastModal();
     }
 });
+// ========== HiFi MODE ==========
+const hifiBtn = $('#hifi-btn');
+
+// Initialize HiFi button state
+function updateHifiButtonUI() {
+    if (hifiBtn) {
+        if (state.hifiMode) {
+            hifiBtn.classList.add('active');
+            hifiBtn.title = "HiFi Mode ON - Streaming lossless FLAC (faster startup, more data)";
+        } else {
+            hifiBtn.classList.remove('active');
+            hifiBtn.title = "HiFi Mode OFF - Streaming MP3 (slower startup, less data)";
+        }
+    }
+}
+
+// Toggle HiFi mode
+if (hifiBtn) {
+    hifiBtn.addEventListener('click', () => {
+        state.hifiMode = !state.hifiMode;
+        localStorage.setItem('freedify_hifi', state.hifiMode);
+        updateHifiButtonUI();
+        
+        // Show toast notification
+        showToast(state.hifiMode ? 
+            '🎵 HiFi Mode ON - Streaming lossless FLAC' : 
+            '🎵 HiFi Mode OFF - Streaming MP3', 3000);
+    });
+    
+    // Initialize UI on load
+    updateHifiButtonUI();
+}
 
 // ========== DJ MODE ==========
 const djModeBtn = $('#dj-mode-btn');

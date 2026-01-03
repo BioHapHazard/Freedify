@@ -8,7 +8,7 @@ import logging
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query, Response
+from fastapi import FastAPI, HTTPException, Query, Response, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -336,14 +336,16 @@ async def get_artist(artist_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/stream/{isrc}")
+@app.api_route("/api/stream/{isrc}", methods=["GET", "HEAD"])
 async def stream_audio(
+    request: Request,
     isrc: str,
-    q: Optional[str] = Query(None, description="Search query hint")
+    q: Optional[str] = Query(None, description="Search query hint"),
+    hifi: bool = Query(False, description="Stream raw FLAC instead of MP3 (faster, larger)")
 ):
     """Stream audio for a track by ISRC."""
     try:
-        logger.info(f"Stream request for ISRC: {isrc}")
+        logger.info(f"Stream request for ISRC: {isrc} (hifi={hifi})")
         
         # For LINK: prefixed IDs pointing to direct audio files, proxy the stream
         # (Redirect causes CORS issues with Web Audio API equalizer)
@@ -428,17 +430,109 @@ async def stream_audio(
                 headers={"Cache-Control": "no-cache"}
             )
         
+        # HiFi Mode: Stream raw FLAC (no transcoding)
+        if hifi:
+            cache_ext = "flac"
+            mime_type = "audio/flac"
+        else:
+            cache_ext = "mp3"
+            mime_type = "audio/mpeg"
+        
         # Check cache
-        if is_cached(isrc, "mp3"):
-            cache_path = get_cache_path(isrc, "mp3")
-            logger.info(f"Serving from cache: {cache_path}")
+        if is_cached(isrc, cache_ext):
+            cache_path = get_cache_path(isrc, cache_ext)
+            logger.info(f"Serving from cache ({cache_ext}): {cache_path}")
             return FileResponse(
                 cache_path,
-                media_type="audio/mpeg",
+                media_type=mime_type,
                 headers={"Accept-Ranges": "bytes", "Cache-Control": "public, max-age=86400"}
             )
         
-        # Fetch and transcode
+        # HiFi Mode: Stream proxy for fast playback (no transcoding)
+        if hifi:
+            try:
+                from fastapi.responses import StreamingResponse
+                
+                logger.info(f"HiFi: Getting stream URL for {isrc} with query: {q}")
+                
+                # Get stream URL from Tidal (search by query if needed)
+                stream_url = None
+                
+                # Try to get Tidal track by searching with query
+                if q:
+                    tidal_track = await audio_service.search_tidal_by_isrc(isrc, q)
+                    if tidal_track:
+                        track_id = tidal_track.get("id")
+                        stream_url = await audio_service.get_tidal_download_url(track_id)
+                
+                if not stream_url:
+                    logger.warning(f"HiFi: No stream URL found, falling back to MP3 transcode")
+                else:
+                    logger.info(f"HiFi: Streaming from {stream_url[:60]}...")
+                    
+                    # Stream proxy - forward audio chunks as they arrive
+                    async def stream_proxy():
+                        try:
+                            async with audio_service.client.stream("GET", stream_url, timeout=300.0) as response:
+                                if response.status_code == 200:
+                                    async for chunk in response.aiter_bytes(chunk_size=65536):
+                                        yield chunk
+                                else:
+                                    logger.error(f"HiFi: Stream failed with status {response.status_code}")
+                        except Exception as e:
+                            logger.error(f"HiFi: Stream proxy error: {e}")
+                    
+                    # Detect content type from URL
+                    content_type = "audio/flac"
+                    format_name = "FLAC"
+                    if ".mp4" in stream_url or ".m4a" in stream_url:
+                        content_type = "audio/mp4"
+                        format_name = "AAC"
+                    elif ".mp3" in stream_url:
+                        content_type = "audio/mpeg"
+                        format_name = "MP3"
+                    
+                    # For HEAD requests, just return headers (for format detection)
+                    if request.method == "HEAD":
+                        return Response(
+                            content=b"",
+                            media_type=content_type,
+                            headers={
+                                "Accept-Ranges": "bytes",
+                                "Cache-Control": "no-cache",
+                                "X-Audio-Format": format_name
+                            }
+                        )
+                    
+                    return StreamingResponse(
+                        stream_proxy(),
+                        media_type=content_type,
+                        headers={
+                            "Accept-Ranges": "bytes",
+                            "Cache-Control": "no-cache",
+                            "X-Audio-Format": format_name
+                        }
+                    )
+            except Exception as e:
+                logger.error(f"HiFi: Error setting up stream proxy: {e}")
+            
+            # Fall back to MP3 transcode if stream proxy fails
+            logger.info(f"HiFi fallback: Using MP3 transcode for {isrc}")
+            mp3_data = await audio_service.get_audio_stream(isrc, q or "")
+            if mp3_data:
+                return Response(
+                    content=mp3_data,
+                    media_type="audio/mpeg",
+                    headers={
+                        "Accept-Ranges": "bytes",
+                        "Content-Length": str(len(mp3_data)),
+                        "Cache-Control": "public, max-age=86400",
+                        "X-Audio-Format": "MP3"
+                    }
+                )
+            raise HTTPException(status_code=404, detail="Could not fetch audio")
+        
+        # Standard: Fetch and transcode to MP3
         mp3_data = await audio_service.get_audio_stream(isrc, q or "")
         
         if not mp3_data:

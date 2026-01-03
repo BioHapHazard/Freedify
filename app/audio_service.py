@@ -42,6 +42,7 @@ from mutagen.mp4 import MP4, MP4Cover
 # List of Tidal API endpoints with fallback (fastest/most reliable first)
 # This will be updated dynamically
 TIDAL_APIS = [
+    "https://triton.squid.wtf",  # From Monochrome - fast primary
     "https://hifi.401658.xyz",
     "https://tidal.kinoplus.online",
     "https://tidal-api.binimum.org",
@@ -764,6 +765,144 @@ class AudioService:
         
         return mp3_data
     
+    async def stream_audio_generator(self, isrc: str, query: str = ""):
+        """
+        Async generator that streams MP3 data as FFmpeg transcodes.
+        Yields chunks incrementally for faster time-to-first-byte.
+        Also caches the complete file after streaming finishes.
+        """
+        # Check cache first - if cached, yield entire file at once
+        if is_cached(isrc, "mp3"):
+            logger.info(f"Cache hit for streaming {isrc}")
+            cached_data = await get_cached_file(isrc, "mp3")
+            if cached_data:
+                yield cached_data
+                return
+        
+        # For imported links
+        if isrc.startswith("LINK:"):
+            try:
+                encoded_url = isrc.replace("LINK:", "")
+                original_url = base64.urlsafe_b64decode(encoded_url).decode()
+                
+                logger.info(f"Streaming imported link: {original_url}")
+                loop = asyncio.get_event_loop()
+                
+                # Get stream URL
+                stream_url = await loop.run_in_executor(None, self._get_stream_url, original_url)
+                if not stream_url:
+                    return
+                
+                # Stream transcode and yield chunks
+                chunks = []
+                async for chunk in self._stream_transcode_url(stream_url):
+                    chunks.append(chunk)
+                    yield chunk
+                
+                # Cache complete file after stream completes
+                if chunks:
+                    complete_data = b"".join(chunks)
+                    await cache_file(isrc, complete_data, "mp3")
+                return
+            except Exception as e:
+                logger.error(f"Streaming link error: {e}")
+                return
+        
+        # Fetch FLAC first (this part still needs to complete)
+        logger.info(f"Streaming transcode for {isrc}")
+        result = await self.fetch_flac(isrc, query)
+        
+        if not result:
+            return
+            
+        flac_data, metadata = result
+        
+        # Stream transcode and yield chunks
+        chunks = []
+        async for chunk in self._stream_transcode_flac(flac_data):
+            chunks.append(chunk)
+            yield chunk
+        
+        # Cache complete file after stream completes
+        if chunks:
+            complete_data = b"".join(chunks)
+            await cache_file(isrc, complete_data, "mp3")
+    
+    async def _stream_transcode_flac(self, flac_data: bytes, bitrate: str = BITRATE):
+        """Stream transcode FLAC data to MP3, yielding chunks."""
+        try:
+            process = await asyncio.create_subprocess_exec(
+                FFMPEG_PATH,
+                "-i", "pipe:0",
+                "-vn",
+                "-acodec", "libmp3lame",
+                "-b:a", bitrate,
+                "-f", "mp3",
+                "pipe:1",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            # Write input in background task - write in chunks to avoid blocking
+            async def write_input():
+                try:
+                    chunk_size = 1024 * 1024  # 1MB chunks for writing
+                    for i in range(0, len(flac_data), chunk_size):
+                        if process.stdin.is_closing():
+                            break
+                        process.stdin.write(flac_data[i:i+chunk_size])
+                        await process.stdin.drain()
+                    process.stdin.close()
+                    await process.stdin.wait_closed()
+                except Exception as e:
+                    logger.error(f"Error writing to FFmpeg stdin: {e}")
+            
+            write_task = asyncio.create_task(write_input())
+            
+            # Read and yield output chunks
+            chunk_size = 64 * 1024  # 64KB chunks for output
+            try:
+                while True:
+                    chunk = await process.stdout.read(chunk_size)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                await write_task  # Ensure write completes
+                await process.wait()
+            
+        except Exception as e:
+            logger.error(f"Streaming transcode error: {e}")
+    
+    async def _stream_transcode_url(self, stream_url: str, bitrate: str = BITRATE):
+        """Stream transcode from URL to MP3, yielding chunks."""
+        try:
+            process = await asyncio.create_subprocess_exec(
+                FFMPEG_PATH,
+                "-i", stream_url,
+                "-vn",
+                "-acodec", "libmp3lame",
+                "-b:a", bitrate,
+                "-f", "mp3",
+                "pipe:1",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            
+            # Read and yield output chunks
+            chunk_size = 64 * 1024  # 64KB chunks
+            while True:
+                chunk = await process.stdout.read(chunk_size)
+                if not chunk:
+                    break
+                yield chunk
+            
+            await process.wait()
+            
+        except Exception as e:
+            logger.error(f"Streaming URL transcode error: {e}")
+
     # Format configurations for FFmpeg
     FORMAT_CONFIG = {
         "mp3": {

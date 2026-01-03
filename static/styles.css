@@ -553,6 +553,32 @@ body {
     text-overflow: ellipsis;
 }
 
+.player-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.audio-format-badge {
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+}
+
+.audio-format-badge.flac {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white;
+}
+
+.audio-format-badge.mp3 {
+    background: var(--bg-tertiary);
+    color: var(--text-tertiary);
+}
+
 /* Progress Bar */
 .player-progress-container {
     display: flex;
@@ -2338,6 +2364,37 @@ body {
 
 .header-btn.synced {
     color: var(--success);
+}
+
+.header-btn.active {
+    background: linear-gradient(135deg, #6366f1 0%, #10b981 100%);
+    color: white;
+    font-weight: 600;
+    font-size: 0.85rem;
+    box-shadow: 0 0 15px rgba(99, 102, 241, 0.5);
+    animation: hifi-pulse 1.5s infinite;
+}
+
+.header-btn.active:hover {
+    background: linear-gradient(135deg, #4f46e5 0%, #059669 100%);
+}
+
+@keyframes hifi-pulse {
+    0%, 100% { box-shadow: 0 0 15px rgba(99, 102, 241, 0.5); }
+    50% { box-shadow: 0 0 25px rgba(16, 185, 129, 0.7); }
+}
+
+#hifi-btn {
+    font-size: 0.85rem;
+    padding: 6px 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-color);
+}
+
+#hifi-btn:not(.active):hover {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
 }
 
 /* ==================== Podcast Episode Modal ==================== */
