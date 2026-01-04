@@ -935,7 +935,8 @@ class AudioService:
                 # Get stream URL
                 stream_url = await loop.run_in_executor(None, self._get_stream_url, original_url)
                 if not stream_url:
-                    return
+                    logger.error(f"Could not resolve stream URL for {isrc}")
+                    raise HTTPException(status_code=404, detail="Could not resolve audio stream")
                 
                 # Stream transcode and yield chunks
                 chunks = []
@@ -954,16 +955,19 @@ class AudioService:
                     complete_data = b"".join(chunks)
                     await cache_file(isrc, complete_data, "mp3")
                 return
+            except HTTPException:
+                raise
             except Exception as e:
                 logger.error(f"Streaming link error: {e}")
-                return
+                raise HTTPException(status_code=500, detail="Streaming error")
         
         # Fetch FLAC first (this part still needs to complete)
         logger.info(f"Streaming transcode for {isrc}")
         result = await self.fetch_flac(isrc, query)
         
         if not result:
-            return
+            logger.error(f"Could not fetch audio for {isrc}")
+            raise HTTPException(status_code=404, detail="Could not fetch audio")
             
         flac_data, metadata = result
         
@@ -986,6 +990,7 @@ class AudioService:
     async def _stream_transcode_flac(self, flac_data: bytes, bitrate: str = BITRATE):
         """Stream transcode FLAC data to MP3, yielding chunks."""
         try:
+            logger.info(f"Starting FFmpeg process: {FFMPEG_PATH} (Input size: {len(flac_data)} bytes)")
             process = await asyncio.create_subprocess_exec(
                 FFMPEG_PATH,
                 "-i", "pipe:0",
@@ -1010,6 +1015,9 @@ class AudioService:
                         await process.stdin.drain()
                     process.stdin.close()
                     await process.stdin.wait_closed()
+                except (BrokenPipeError, ConnectionResetError):
+                    # Process likely exited early (e.g. error)
+                    pass
                 except Exception as e:
                     logger.error(f"Error writing to FFmpeg stdin: {e}")
             
@@ -1017,22 +1025,46 @@ class AudioService:
             
             # Read and yield output chunks
             chunk_size = 64 * 1024  # 64KB chunks for output
+            bytes_read = 0
             try:
                 while True:
                     chunk = await process.stdout.read(chunk_size)
                     if not chunk:
                         break
+                    bytes_read += len(chunk)
                     yield chunk
             finally:
+                logger.info(f"FFmpeg streaming finished. Bytes read: {bytes_read}")
+
+                # Check for errors if no bytes read
+                if bytes_read == 0:
+                     stderr = await process.stderr.read()
+                     if stderr:
+                         logger.error(f"FFmpeg error output: {stderr.decode()[:500]}")
+
+                # Ensure process is cleaned up even if generator is cancelled
+                if process.returncode is None:
+                    try:
+                        process.terminate()
+                        # Give it a moment to terminate gracefully
+                        try:
+                            await asyncio.wait_for(process.wait(), timeout=1.0)
+                        except asyncio.TimeoutError:
+                            process.kill()
+                    except Exception:
+                        pass
+
                 await write_task  # Ensure write completes
                 await process.wait()
             
         except Exception as e:
             logger.error(f"Streaming transcode error: {e}")
+            raise
     
     async def _stream_transcode_url(self, stream_url: str, bitrate: str = BITRATE):
         """Stream transcode from URL to MP3, yielding chunks."""
         try:
+            logger.info(f"Starting FFmpeg process for URL: {stream_url[:50]}...")
             process = await asyncio.create_subprocess_exec(
                 FFMPEG_PATH,
                 "-i", stream_url,
@@ -1047,16 +1079,39 @@ class AudioService:
             
             # Read and yield output chunks
             chunk_size = 64 * 1024  # 64KB chunks
-            while True:
-                chunk = await process.stdout.read(chunk_size)
-                if not chunk:
-                    break
-                yield chunk
-            
-            await process.wait()
+            bytes_read = 0
+            try:
+                while True:
+                    chunk = await process.stdout.read(chunk_size)
+                    if not chunk:
+                        break
+                    bytes_read += len(chunk)
+                    yield chunk
+            finally:
+                logger.info(f"FFmpeg URL streaming finished. Bytes read: {bytes_read}")
+
+                # Check for errors if no bytes read
+                if bytes_read == 0:
+                     stderr = await process.stderr.read()
+                     if stderr:
+                         logger.error(f"FFmpeg URL error output: {stderr.decode()[:500]}")
+
+                 # Ensure process is cleaned up even if generator is cancelled
+                if process.returncode is None:
+                    try:
+                        process.terminate()
+                        # Give it a moment to terminate gracefully
+                        try:
+                            await asyncio.wait_for(process.wait(), timeout=1.0)
+                        except asyncio.TimeoutError:
+                            process.kill()
+                    except Exception:
+                        pass
+                await process.wait()
             
         except Exception as e:
             logger.error(f"Streaming URL transcode error: {e}")
+            raise
 
     # Format configurations for FFmpeg
     FORMAT_CONFIG = {
@@ -1126,7 +1181,7 @@ class AudioService:
             return output_data
             
         except FileNotFoundError:
-            logger.error("FFmpeg not found!")
+            logger.error("FFmpeg not found! Please install FFmpeg.")
             return None
         except Exception as e:
             logger.error(f"Transcode error: {e}")
