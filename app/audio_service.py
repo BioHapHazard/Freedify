@@ -10,8 +10,20 @@ import httpx
 import base64
 from typing import Optional, Dict, Any, List
 import logging
-
+import json
+import tempfile
+from urllib.parse import urlparse
 import re
+
+from mutagen.flac import FLAC, Picture
+from mutagen.id3 import ID3, TIT2, TPE1, TALB, TRCK, TDRC, TCON, APIC, COMM
+from mutagen.mp3 import MP3, EasyMP3
+from mutagen.mp4 import MP4, MP4Cover
+
+from fastapi.responses import StreamingResponse, FileResponse
+from fastapi import Request, HTTPException
+from starlette.background import BackgroundTask
+
 from app.cache import is_cached, get_cached_file, cache_file, get_cache_path
 
 logger = logging.getLogger(__name__)
@@ -30,14 +42,6 @@ if os.name == 'nt' and FFMPEG_PATH == "ffmpeg":
             if "ffmpeg.exe" in files:
                 FFMPEG_PATH = os.path.join(root, "ffmpeg.exe")
                 break
-
-# List of Tidal API endpoints with fallback (fastest/most reliable first)
-import json
-import tempfile
-from mutagen.flac import FLAC, Picture
-from mutagen.id3 import ID3, TIT2, TPE1, TALB, TRCK, TDRC, TCON, APIC, COMM
-from mutagen.mp3 import MP3, EasyMP3
-from mutagen.mp4 import MP4, MP4Cover
 
 # List of Tidal API endpoints with fallback (fastest/most reliable first)
 # This will be updated dynamically
@@ -808,6 +812,103 @@ class AudioService:
         
         return mp3_data
     
+    async def handle_link_stream(self, request: Request, isrc: str):
+        """Handle streaming for LINK: prefixed IDs."""
+        try:
+            encoded_url = isrc.replace("LINK:", "")
+            original_url = base64.urlsafe_b64decode(encoded_url).decode()
+
+            # Check if it's a direct audio file
+            parsed = urlparse(original_url)
+            audio_extensions = ('.mp3', '.m4a', '.ogg', '.wav', '.aac', '.opus')
+            if any(parsed.path.lower().endswith(ext) for ext in audio_extensions):
+                logger.info(f"Proxying direct audio URL (with seeking support): {original_url[:60]}...")
+
+                # Prepare headers to forward (especially Range)
+                req_headers = {}
+                if request.headers.get("Range"):
+                    req_headers["Range"] = request.headers.get("Range")
+                    logger.info(f"Forwarding Range header: {req_headers['Range']}")
+
+                client = httpx.AsyncClient(follow_redirects=True, timeout=60.0)
+                req = client.build_request("GET", original_url, headers=req_headers)
+                r = await client.send(req, stream=True)
+
+                # Determine content type
+                ext = parsed.path.lower().split('.')[-1]
+                content_types = {
+                    'mp3': 'audio/mpeg', 'm4a': 'audio/mp4', 'ogg': 'audio/ogg',
+                    'wav': 'audio/wav', 'aac': 'audio/aac', 'opus': 'audio/opus'
+                }
+                content_type = r.headers.get("Content-Type") or content_types.get(ext, 'audio/mpeg')
+
+                # Prepare response headers
+                resp_headers = {
+                    "Accept-Ranges": "bytes",
+                    "Cache-Control": "public, max-age=3600"
+                }
+                if r.headers.get("Content-Range"):
+                    resp_headers["Content-Range"] = r.headers.get("Content-Range")
+                if r.headers.get("Content-Length"):
+                    resp_headers["Content-Length"] = r.headers.get("Content-Length")
+
+                return StreamingResponse(
+                    r.aiter_bytes(chunk_size=65536),
+                    status_code=r.status_code,
+                    media_type=content_type,
+                    headers=resp_headers,
+                    background=BackgroundTask(client.aclose)
+                )
+
+            # Not a direct link, fall back to transcoding stream
+            return StreamingResponse(
+                self.stream_audio_generator(isrc),
+                media_type="audio/mpeg",
+                headers={"Cache-Control": "public, max-age=86400"}
+            )
+        except Exception as e:
+            logger.warning(f"Failed to proxy LINK: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    async def handle_ytm_stream(self, isrc: str):
+        """Handle streaming for YouTube Music tracks."""
+        video_id = isrc.replace("ytm_", "")
+        youtube_url = f"https://music.youtube.com/watch?v={video_id}"
+        logger.info(f"YTMusic track detected, fetching via yt-dlp: {youtube_url}")
+
+        # Check cache first
+        if is_cached(isrc, "mp3"):
+            cache_path = get_cache_path(isrc, "mp3")
+            logger.info(f"Serving YTM from cache: {cache_path}")
+            return FileResponse(
+                cache_path,
+                media_type="audio/mpeg",
+                headers={"Accept-Ranges": "bytes", "Cache-Control": "public, max-age=86400"}
+            )
+
+        # Get stream URL via yt-dlp
+        stream_url = self._get_stream_url(youtube_url)
+        if not stream_url:
+            raise HTTPException(status_code=404, detail="Could not extract YouTube Music audio URL")
+
+        logger.info(f"Proxying YTM audio directly (no transcode): {stream_url[:60]}...")
+
+        # Proxy the stream directly - no transcoding needed
+        async def proxy_ytm_stream():
+            async with httpx.AsyncClient(follow_redirects=True, timeout=300.0) as client:
+                async with client.stream("GET", stream_url) as response:
+                    async for chunk in response.aiter_bytes(chunk_size=65536):
+                        yield chunk
+
+        # Determine content type from URL
+        content_type = "audio/webm" if "webm" in stream_url else "audio/mp4"
+
+        return StreamingResponse(
+            proxy_ytm_stream(),
+            media_type=content_type,
+            headers={"Cache-Control": "no-cache"}
+        )
+
     async def stream_audio_generator(self, isrc: str, query: str = ""):
         """
         Async generator that streams MP3 data as FFmpeg transcodes.
@@ -838,9 +939,15 @@ class AudioService:
                 
                 # Stream transcode and yield chunks
                 chunks = []
-                async for chunk in self._stream_transcode_url(stream_url):
-                    chunks.append(chunk)
-                    yield chunk
+                # Use robust generator with cleanup
+                generator = self._stream_transcode_url(stream_url)
+                try:
+                    async for chunk in generator:
+                        chunks.append(chunk)
+                        yield chunk
+                except Exception as e:
+                    logger.error(f"Error streaming link: {e}")
+                    raise
                 
                 # Cache complete file after stream completes
                 if chunks:
@@ -862,9 +969,14 @@ class AudioService:
         
         # Stream transcode and yield chunks
         chunks = []
-        async for chunk in self._stream_transcode_flac(flac_data):
-            chunks.append(chunk)
-            yield chunk
+        generator = self._stream_transcode_flac(flac_data)
+        try:
+            async for chunk in generator:
+                chunks.append(chunk)
+                yield chunk
+        except Exception as e:
+            logger.error(f"Error streaming flac: {e}")
+            raise
         
         # Cache complete file after stream completes
         if chunks:

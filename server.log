@@ -1,0 +1,7 @@
+INFO:     Started server process [3246]
+INFO:     Waiting for application startup.
+2026-01-04 13:18:17,750 - app.main - INFO - Starting Freedify Streaming Server...
+2026-01-04 13:18:17,751 - app.cache - INFO - Cache size after cleanup: 0.00 MB
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:54042 - "GET /docs HTTP/1.1" 200 OK
