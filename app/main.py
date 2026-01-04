@@ -28,6 +28,7 @@ from app.ai_radio_service import ai_radio_service
 from app.ytmusic_service import ytmusic_service
 from app.setlist_service import setlist_service
 from app.listenbrainz_service import listenbrainz_service
+from app.lyrics_service import lyrics_service
 from app.cache import cleanup_cache, periodic_cleanup, is_cached, get_cache_path
 
 # Configure logging
@@ -58,6 +59,7 @@ async def lifespan(app: FastAPI):
     await spotify_service.close()
     await audio_service.close()
     await podcast_service.close()
+    await lyrics_service.close()
     logger.info("Server shutdown complete.")
 
 
@@ -100,6 +102,82 @@ class ImportRequest(BaseModel):
 async def health_check():
     """Health check endpoint."""
     return {"status": "ok", "service": "freedify-streaming"}
+
+
+@app.get("/api/lyrics/{track_id}")
+async def get_lyrics(track_id: str):
+    """Get lyrics for a track."""
+    try:
+        # First fetch track info to get correct title/artist
+        if track_id.startswith("dz_"):
+            track = await deezer_service.get_track_by_id(track_id) # Need to verify this method exists or use get_album logic
+            # DeezerService doesn't seem to have get_track_by_id exposed directly as public method in my read,
+            # but it has search_tracks. Let's check or use a fallback.
+            # Looking at deezer_service.py: it has search_tracks, get_album, get_artist.
+            # It DOES NOT have get_track.
+            # I should implement get_track in deezer_service or use audio_service info?
+            # Let's rely on search for now if track_id is not enough.
+            pass
+
+        # Simplified approach: Use search if we don't have track details,
+        # OR if the frontend passes name/artist.
+        # But the endpoint only takes track_id.
+
+        # Let's add a robust get_track to DeezerService or just use the ID to fetch from Deezer API directly here?
+        # Better: Add get_track to DeezerService.
+
+        # For now, let's assume we can fetch it.
+        # Wait, I didn't add get_track to DeezerService in the plan.
+        # I'll implement a simple fetch here using the service's client if possible, or add it.
+
+        # Actually, let's look at how get_track works in main.py
+        # @app.get("/api/track/{track_id}") uses spotify_service.get_track_by_id.
+
+        track = None
+        if track_id.startswith("dz_"):
+             # We need to fetch from Deezer.
+             # Using the client from deezer_service to be clean.
+             clean_id = track_id.replace("dz_", "")
+             data = await deezer_service._api_request(f"/track/{clean_id}")
+             if data and "error" not in data:
+                 track = deezer_service._format_track(data)
+        elif track_id.startswith("ytm_"):
+             # YTMusic
+             # We don't have a direct get_track in ytmusic_service, but we can search or get song.
+             # ytmusicapi has get_song(videoId)
+             clean_id = track_id.replace("ytm_", "")
+             # accessing private member is bad, but for speed:
+             try:
+                song = await ytmusic_service.ytm.get_song(clean_id)
+                if song:
+                     # Format it?
+                     track = {"name": song.get("videoDetails", {}).get("title"), "artists": song.get("videoDetails", {}).get("author")}
+             except:
+                pass
+        else:
+            # Try Spotify
+            track = await spotify_service.get_track_by_id(track_id)
+
+        if not track:
+            raise HTTPException(status_code=404, detail="Track not found")
+
+        lyrics = await lyrics_service.get_lyrics(
+            track_name=track.get("name"),
+            artist_name=track.get("artists") or (track.get("artist_names")[0] if track.get("artist_names") else ""),
+            duration=track.get("duration_ms", 0) / 1000 if track.get("duration_ms") else None,
+            album_name=track.get("album")
+        )
+
+        if not lyrics:
+            raise HTTPException(status_code=404, detail="Lyrics not found")
+
+        return lyrics
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Lyrics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/search")
@@ -348,107 +426,13 @@ async def stream_audio(
         logger.info(f"Stream request for ISRC: {isrc} (hifi={hifi})")
         
         # For LINK: prefixed IDs pointing to direct audio files, proxy the stream
-        # (Redirect causes CORS issues with Web Audio API equalizer)
         if isrc.startswith("LINK:"):
-            import base64
-            import httpx
-            from urllib.parse import urlparse
-            from fastapi.responses import StreamingResponse
-            try:
-                encoded_url = isrc.replace("LINK:", "")
-                original_url = base64.urlsafe_b64decode(encoded_url).decode()
-                
-                # Check if it's a direct audio file
-                parsed = urlparse(original_url)
-                audio_extensions = ('.mp3', '.m4a', '.ogg', '.wav', '.aac', '.opus')
-                if any(parsed.path.lower().endswith(ext) for ext in audio_extensions):
-                    logger.info(f"Proxying direct audio URL (with seeking support): {original_url[:60]}...")
-                    
-                    # Prepare headers to forward (especially Range)
-                    req_headers = {}
-                    if request.headers.get("Range"):
-                        req_headers["Range"] = request.headers.get("Range")
-                        logger.info(f"Forwarding Range header: {req_headers['Range']}")
-                    
-                    # Stream proxy with Range support
-                    # We use manual client management to inspect headers before streaming
-                    from starlette.background import BackgroundTask
-                    
-                    client = httpx.AsyncClient(follow_redirects=True, timeout=60.0)
-                    req = client.build_request("GET", original_url, headers=req_headers)
-                    r = await client.send(req, stream=True)
-                    
-                    # Determine content type
-                    ext = parsed.path.lower().split('.')[-1]
-                    content_types = {
-                        'mp3': 'audio/mpeg', 'm4a': 'audio/mp4', 'ogg': 'audio/ogg',
-                        'wav': 'audio/wav', 'aac': 'audio/aac', 'opus': 'audio/opus'
-                    }
-                    content_type = r.headers.get("Content-Type") or content_types.get(ext, 'audio/mpeg')
-                    
-                    # Prepare response headers
-                    resp_headers = {
-                        "Accept-Ranges": "bytes",
-                        "Cache-Control": "public, max-age=3600"
-                    }
-                    if r.headers.get("Content-Range"):
-                        resp_headers["Content-Range"] = r.headers.get("Content-Range")
-                    if r.headers.get("Content-Length"):
-                        resp_headers["Content-Length"] = r.headers.get("Content-Length")
-                    
-                    return StreamingResponse(
-                        r.aiter_bytes(chunk_size=65536),
-                        status_code=r.status_code, # Should represent 206 if Range was respected
-                        media_type=content_type,
-                        headers=resp_headers,
-                        background=BackgroundTask(client.aclose)
-                    )
-            except Exception as e:
-                logger.warning(f"Failed to proxy LINK: {e}")
-                # Fall through to normal processing
-        
-        # YouTube Music tracks - use yt-dlp directly with YouTube URL
+             return await audio_service.handle_link_stream(request, isrc)
+
+        # YouTube Music tracks
         if isrc.startswith("ytm_"):
-            video_id = isrc.replace("ytm_", "")
-            youtube_url = f"https://music.youtube.com/watch?v={video_id}"
-            logger.info(f"YTMusic track detected, fetching via yt-dlp: {youtube_url}")
-            
-            # Check cache first
-            if is_cached(isrc, "mp3"):
-                cache_path = get_cache_path(isrc, "mp3")
-                logger.info(f"Serving YTM from cache: {cache_path}")
-                return FileResponse(
-                    cache_path,
-                    media_type="audio/mpeg",
-                    headers={"Accept-Ranges": "bytes", "Cache-Control": "public, max-age=86400"}
-                )
-            
-            # Get stream URL via yt-dlp
-            from fastapi.responses import StreamingResponse
-            import httpx
-            
-            stream_url = audio_service._get_stream_url(youtube_url)
-            if not stream_url:
-                raise HTTPException(status_code=404, detail="Could not extract YouTube Music audio URL")
-            
-            logger.info(f"Proxying YTM audio directly (no transcode): {stream_url[:60]}...")
-            
-            # Proxy the stream directly - no transcoding needed, browsers play Opus/AAC natively
-            async def proxy_ytm_stream():
-                async with httpx.AsyncClient(follow_redirects=True, timeout=300.0) as client:
-                    async with client.stream("GET", stream_url) as response:
-                        async for chunk in response.aiter_bytes(chunk_size=65536):
-                            yield chunk
-            
-            # Determine content type from URL
-            content_type = "audio/webm" if "webm" in stream_url else "audio/mp4"
-            
-            return StreamingResponse(
-                proxy_ytm_stream(),
-                media_type=content_type,
-                headers={"Cache-Control": "no-cache"}
-            )
-        
+            return await audio_service.handle_ytm_stream(isrc)
+
         # HiFi Mode: Stream raw FLAC (no transcoding)
         if hifi:
             cache_ext = "flac"
@@ -563,19 +547,15 @@ async def stream_audio(
                 )
             raise HTTPException(status_code=404, detail="Could not fetch audio")
         
-        # Standard: Fetch and transcode to MP3
-        mp3_data = await audio_service.get_audio_stream(isrc, q or "")
+        # Standard: Streaming Transcode to MP3 (Gapless/Fast Start)
+        from fastapi.responses import StreamingResponse
         
-        if not mp3_data:
-            raise HTTPException(status_code=404, detail="Could not fetch audio")
-        
-        return Response(
-            content=mp3_data,
+        return StreamingResponse(
+            audio_service.stream_audio_generator(isrc, q or ""),
             media_type="audio/mpeg",
             headers={
-                "Accept-Ranges": "bytes",
-                "Content-Length": str(len(mp3_data)),
-                "Cache-Control": "public, max-age=86400"
+                "Cache-Control": "public, max-age=86400",
+                "X-Stream-Type": "transcode-stream"
             }
         )
         

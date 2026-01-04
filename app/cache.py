@@ -64,15 +64,26 @@ async def get_cached_file(isrc: str, format: str = "mp3") -> Optional[bytes]:
 
 
 async def cache_file(isrc: str, data: bytes, format: str = "mp3") -> bool:
-    """Cache a transcoded file."""
+    """Cache a transcoded file. Uses a temporary file to avoid partial reads during write."""
     try:
         cache_path = get_cache_path(isrc, format)
-        async with aiofiles.open(cache_path, 'wb') as f:
+        temp_path = cache_path.with_suffix(f"{cache_path.suffix}.tmp")
+
+        async with aiofiles.open(temp_path, 'wb') as f:
             await f.write(data)
+
+        # Atomic rename
+        os.replace(temp_path, cache_path)
+
         logger.info(f"Cached {isrc}.{format} ({len(data) / 1024 / 1024:.2f} MB)")
         return True
     except Exception as e:
         logger.error(f"Error caching {isrc}: {e}")
+        if 'temp_path' in locals() and temp_path.exists():
+            try:
+                os.remove(temp_path)
+            except:
+                pass
         return False
 
 
