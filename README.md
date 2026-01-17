@@ -260,6 +260,24 @@ Open http://localhost:8000
 
 ---
 
+## 📦 Proxmox VE LXC Container (Lightweight Self-Hosting)
+
+**Perfect for homelab enthusiasts!** Run Freedify in an ultra-lightweight Alpine Linux container with a single command.
+
+```bash
+bash <(curl -s https://raw.githubusercontent.com/tanujdargan/Freedify/main/proxmox-freedify-install.sh)
+```
+
+**Why Proxmox?**
+- ✅ **Minimal footprint**: ~300-400MB total (Alpine Linux base)
+- ✅ **Auto-configured**: Creates container, installs dependencies, and starts service
+- ✅ **Resource efficient**: Runs on just 1GB RAM and 2 CPU cores
+- ✅ **Production-ready**: Includes OpenRC service for auto-start on boot
+
+📖 **[Full Proxmox Installation Guide](PROXMOX.md)**
+
+---
+
 ## 🌐 Deploy to Railway (Recommended for Mobile + Hi-Res)
 
 **Railway is recommended** for mobile users who want Hi-Res (24-bit) streaming. Docker self-hosting is great for local networks, but Railway gives you a public URL for accessing your music from anywhere.
