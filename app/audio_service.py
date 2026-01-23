@@ -4,6 +4,7 @@ Fetches FLAC from Tidal/Deezer and transcodes to MP3 using FFmpeg.
 Uses multiple API endpoints with fallback for reliability.
 """
 import os
+import io
 import subprocess
 import asyncio
 import httpx
@@ -461,12 +462,10 @@ class AudioService:
         
         try:
             suffix = ".flac" if format == "flac" else ".mp3"
-            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                tmp.write(audio_data)
-                tmp_path = tmp.name
+            buffer = io.BytesIO(audio_data)
             
             if format == "flac":
-                audio = FLAC(tmp_path)
+                audio = FLAC(buffer)
                 audio.clear_pictures()
                 
                 if metadata.get("title"): audio["TITLE"] = metadata["title"]
@@ -489,13 +488,14 @@ class AudioService:
                     picture.type = 3  # 3 = COVER_FRONT picture type
                     picture.mime = "image/jpeg"
                     audio.add_picture(picture)
-                audio.save()
+                buffer.seek(0)
+                audio.save(buffer)
 
             elif format in ["mp3", "mp3_128"]:
                 try:
-                    audio = MP3(tmp_path, ID3=ID3)
+                    audio = MP3(buffer, ID3=ID3)
                 except:
-                    audio = MP3(tmp_path)
+                    audio = MP3(buffer)
                     audio.add_tags()
                 
                 # ID3 Tags
@@ -515,17 +515,14 @@ class AudioService:
                             data=metadata["album_art_data"]
                         )
                     )
-                audio.save()
+                    buffer.seek(0)
+                audio.save(buffer)
 
-            with open(tmp_path, 'rb') as f:
-                tagged_data = f.read()
-            
-            os.remove(tmp_path)
-            return tagged_data
+            buffer.seek(0)
+            return buffer.read()
             
         except Exception as e:
             logger.error(f"Metadata tagging error: {e}")
-            if os.path.exists(tmp_path): os.remove(tmp_path)
             return audio_data
 
     async def get_tidal_download_url(self, track_id: int, quality: str = "LOSSLESS") -> Optional[str]:
