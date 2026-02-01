@@ -101,12 +101,21 @@ Open [http://localhost:8000](http://localhost:8000) and start streaming! 🎵
 
 ### 💾 Download & Save
 - **Save to Drive** - Direct save to Google Drive (FLAC/AIFF/MP3)
+- **Save to Server** - Store tracks on server for instant local playback (no re-streaming)
 - **Single Tracks** - Download locally as Artist - Song.ext
 - **Full Albums/Playlists** - Batch download as Artist - Album.zip
 - **Large Playlists** - Playlists over 50 songs are automatically split into multiple ZIP parts (e.g., "Playlist (Part 1).zip") to ensure reliability.
 - **Multiple Formats** - FLAC (Hi-Res), WAV (16/24-bit), AIFF (16/24-bit), ALAC, 320kbps MP3
 - **Current Track** - Press ⬇ on player bar or fullscreen to download now playing
 - **MusicBrainz Metadata** - Downloads enriched with release year, label, and high-res cover art
+
+### 📚 Server Library
+- **Permanent Storage** - Save tracks to a persistent server library (separate from cache)
+- **Instant Playback** - Library tracks play immediately without external streaming
+- **Visual Indicator** - "LOCAL" badge shows when playing from library
+- **Organized Storage** - Files saved as `/library/tracks/Artist/Song.flac`
+- **Library View** - Click 📚 in header to browse and manage saved tracks
+- **Docker Volume** - Library persists via `freedify-library` volume
 
 ### 📋 Queue Management
 - **Drag to Reorder** - Drag tracks to rearrange
@@ -317,6 +326,10 @@ python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
    ```
 5. **Access:** Open http://localhost:8000 in your browser.
 
+> **Volumes:** Docker Compose creates two persistent volumes:
+> - `freedify-cache` - Temporary streaming cache (auto-cleaned)
+> - `freedify-library` - Permanent server library for saved tracks
+
 ---
 
 ## 🌐 Deploy to Railway (Recommended for Mobile + Hi-Res)
@@ -372,6 +385,8 @@ When deploying to Render (or other hosts), set these in your Dashboard:
 | `SEATGEEK_CLIENT_ID` | For Concert Search fallback (free at seatgeek.com/account/develop) |
 | `DAB_SESSION` | **Recommended** - For Hi-Res (24-bit) Audio (from Dab/Qobuz) |
 | `DAB_VISITOR_ID` | **Recommended** - For Hi-Res (24-bit) Audio (from Dab/Qobuz) |
+| `LIBRARY_DIR` | Server library path (default: `/app/library`) |
+| `LIBRARY_MAX_SIZE_GB` | Max library size in GB (default: `0` = unlimited) |
 
 ### How to Get Dab Music Cookies (for Hi-Res Audio)
 
