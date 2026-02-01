@@ -34,6 +34,7 @@ from app.genius_service import genius_service
 from app.concert_service import concert_service
 
 from app.cache import cleanup_cache, periodic_cleanup, is_cached, get_cache_path
+from app import library
 
 # Configure logging
 logging.basicConfig(
@@ -445,9 +446,34 @@ async def stream_audio(
     """Stream audio for a track by ISRC."""
     try:
         logger.info(f"Stream request for ISRC: {isrc} (hires={hires})")
-        
+
+        # 0. Check Library first (permanent user storage)
+        try:
+            track_info = await library.get_track_info(isrc)
+            if track_info:
+                format = track_info.get("format", "flac")
+                file_path = await library.get_track_file_path(isrc)
+                if file_path and file_path.exists():
+                    logger.info(f"Serving from library: {file_path}")
+                    mime_type = "audio/flac" if format == "flac" else f"audio/{format}"
+                    return FileResponse(
+                        file_path,
+                        media_type=mime_type,
+                        headers={
+                            "Accept-Ranges": "bytes",
+                            "Cache-Control": "public, max-age=86400",
+                            "X-Source": "library"
+                        }
+                    )
+                else:
+                    # File missing - clean up orphaned index entry
+                    logger.warning(f"Library file missing, cleaning index: {isrc}")
+                    await library.delete_track(isrc)
+        except Exception as e:
+            logger.warning(f"Library check failed: {e}")
+
         target_stream_url = None
-        
+
         # 1. Resolve Target Stream URL (Direct or via yt-dlp)
         
         # Handle Imported Links (LINK:)
@@ -1033,6 +1059,171 @@ async def download_batch(request: BatchDownloadRequest):
         
     except Exception as e:
         logger.error(f"Batch download error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========== SERVER LIBRARY ==========
+
+class LibrarySaveRequest(BaseModel):
+    """Request to save track(s) to server library."""
+    isrc: str
+    q: Optional[str] = None  # Search query hint
+    format: str = "flac"
+    # Optional metadata to store
+    name: Optional[str] = None
+    artist: Optional[str] = None
+    album: Optional[str] = None
+    album_art: Optional[str] = None
+
+
+class LibrarySaveBatchRequest(BaseModel):
+    """Request to save multiple tracks to server library."""
+    tracks: List[LibrarySaveRequest]
+
+
+@app.post("/api/library/save")
+async def library_save(request: LibrarySaveRequest):
+    """Save a track to the server library for local playback."""
+    try:
+        logger.info(f"Library save request: {request.isrc} ({request.format})")
+
+        # Check if already exists
+        if await library.track_exists(request.isrc, request.format):
+            logger.info(f"Track already in library: {request.isrc}")
+            return {"success": True, "message": "Already in library", "isrc": request.isrc}
+
+        # Fetch the audio
+        result = await audio_service.get_download_audio(
+            request.isrc,
+            request.q or "",
+            request.format
+        )
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Could not fetch audio")
+
+        data, ext, mime = result
+
+        # Build metadata
+        metadata = {}
+        if request.name:
+            metadata["name"] = request.name
+        if request.artist:
+            metadata["artist"] = request.artist
+        if request.album:
+            metadata["album"] = request.album
+        if request.album_art:
+            metadata["album_art"] = request.album_art
+
+        # Save to library
+        success = await library.add_track(
+            request.isrc,
+            data,
+            request.format,
+            metadata
+        )
+
+        if not success:
+            # Check if storage limit
+            stats = await library.get_stats()
+            if stats.get("max_size_gb") and stats.get("total_size_gb", 0) >= stats["max_size_gb"]:
+                raise HTTPException(
+                    status_code=507,
+                    detail=f"Library storage limit reached ({stats['max_size_gb']} GB)"
+                )
+            raise HTTPException(status_code=500, detail="Failed to save to library")
+
+        return {
+            "success": True,
+            "message": "Saved to library",
+            "isrc": request.isrc,
+            "format": request.format,
+            "size_mb": round(len(data) / (1024 * 1024), 2)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Library save error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/library/save-batch")
+async def library_save_batch(request: LibrarySaveBatchRequest):
+    """Save multiple tracks to the server library."""
+    try:
+        results = []
+        for track in request.tracks:
+            try:
+                result = await library_save(track)
+                results.append({"isrc": track.isrc, "success": True})
+            except HTTPException as e:
+                results.append({"isrc": track.isrc, "success": False, "error": e.detail})
+            except Exception as e:
+                results.append({"isrc": track.isrc, "success": False, "error": str(e)})
+
+        successful = sum(1 for r in results if r.get("success"))
+        return {
+            "success": successful > 0,
+            "saved": successful,
+            "total": len(request.tracks),
+            "results": results
+        }
+    except Exception as e:
+        logger.error(f"Library batch save error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/library/list")
+async def library_list(
+    offset: int = Query(0, description="Pagination offset"),
+    limit: int = Query(50, description="Number of tracks to return"),
+    sort_by: str = Query("added", description="Sort field: added, name, artist, size"),
+    sort_desc: bool = Query(True, description="Sort descending")
+):
+    """List all tracks in the server library."""
+    try:
+        return await library.list_tracks(offset, limit, sort_by, sort_desc)
+    except Exception as e:
+        logger.error(f"Library list error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/library/check")
+async def library_check(isrcs: str = Query(..., description="Comma-separated ISRCs to check")):
+    """Check if tracks exist in the library. Returns dict of ISRC -> exists boolean."""
+    try:
+        isrc_list = [s.strip() for s in isrcs.split(",") if s.strip()]
+        if not isrc_list:
+            return {}
+        return await library.check_multiple(isrc_list)
+    except Exception as e:
+        logger.error(f"Library check error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/library/{isrc}")
+async def library_delete(isrc: str):
+    """Remove a track from the server library."""
+    try:
+        success = await library.delete_track(isrc)
+        if not success:
+            raise HTTPException(status_code=404, detail="Track not found in library")
+        return {"success": True, "message": "Removed from library", "isrc": isrc}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Library delete error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/library/stats")
+async def library_stats():
+    """Get library statistics (size, count, formats)."""
+    try:
+        return await library.get_stats()
+    except Exception as e:
+        logger.error(f"Library stats error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

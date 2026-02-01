@@ -1874,6 +1874,294 @@ downloadModal.addEventListener('click', (e) => {
     if (e.target === downloadModal) closeDownloadModal();
 });
 
+// ========== SERVER LIBRARY ==========
+
+const libraryBtn = $('#library-btn');
+const librarySection = $('#library-section');
+const libraryContainer = $('#library-container');
+const libraryCount = $('#library-count');
+const librarySize = $('#library-size');
+const libraryClose = $('#library-close');
+const libraryRefresh = $('#library-refresh');
+const downloadLibraryBtn = $('#download-library-btn');
+
+// Track library state
+let libraryTracks = [];
+let libraryLookup = {}; // isrc -> true for fast lookup
+
+// Toggle library view
+if (libraryBtn) {
+    libraryBtn.addEventListener('click', () => {
+        const isHidden = librarySection.classList.contains('hidden');
+        if (isHidden) {
+            showLibrary();
+        } else {
+            hideLibrary();
+        }
+    });
+}
+
+if (libraryClose) {
+    libraryClose.addEventListener('click', hideLibrary);
+}
+
+if (libraryRefresh) {
+    libraryRefresh.addEventListener('click', loadLibrary);
+}
+
+function showLibrary() {
+    librarySection.classList.remove('hidden');
+    queueSection.classList.add('hidden');
+    loadLibrary();
+}
+
+function hideLibrary() {
+    librarySection.classList.add('hidden');
+}
+
+async function loadLibrary() {
+    try {
+        const response = await fetch('/api/library/list?limit=200');
+        if (!response.ok) throw new Error('Failed to load library');
+
+        const data = await response.json();
+        libraryTracks = data.tracks || [];
+
+        // Update lookup
+        libraryLookup = {};
+        libraryTracks.forEach(t => libraryLookup[t.isrc] = true);
+
+        // Update stats
+        const statsResp = await fetch('/api/library/stats');
+        if (statsResp.ok) {
+            const stats = await statsResp.json();
+            libraryCount.textContent = `(${stats.track_count} tracks)`;
+            librarySize.textContent = stats.total_size_gb > 1
+                ? `${stats.total_size_gb.toFixed(2)} GB`
+                : `${stats.total_size_mb.toFixed(1)} MB`;
+        }
+
+        renderLibrary();
+    } catch (error) {
+        console.error('Library load error:', error);
+        showToast('Failed to load library');
+    }
+}
+
+function renderLibrary() {
+    if (!libraryContainer) return;
+
+    if (libraryTracks.length === 0) {
+        libraryContainer.innerHTML = `
+            <div class="library-empty">
+                <span class="empty-icon">📚</span>
+                <p>Your server library is empty</p>
+                <p class="hint">Save tracks using the "Save to Server" button in the download menu</p>
+            </div>
+        `;
+        return;
+    }
+
+    libraryContainer.innerHTML = libraryTracks.map((track, i) => {
+        const name = track.name || track.isrc;
+        const artist = track.artist || 'Unknown Artist';
+        const sizeMb = (track.size / (1024 * 1024)).toFixed(1);
+        const added = track.added ? new Date(track.added).toLocaleDateString() : '';
+
+        return `
+            <div class="library-item" data-index="${i}" data-isrc="${track.isrc}">
+                <div class="library-item-info">
+                    <span class="library-item-name">${name}</span>
+                    <span class="library-item-artist">${artist}</span>
+                </div>
+                <div class="library-item-meta">
+                    <span class="library-item-format">${track.format?.toUpperCase() || 'FLAC'}</span>
+                    <span class="library-item-size">${sizeMb} MB</span>
+                </div>
+                <div class="library-item-actions">
+                    <button class="library-play-btn" title="Play">▶</button>
+                    <button class="library-delete-btn" title="Remove from library">🗑️</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    // Add event listeners
+    libraryContainer.querySelectorAll('.library-item').forEach(item => {
+        const isrc = item.dataset.isrc;
+        const idx = parseInt(item.dataset.index);
+
+        item.querySelector('.library-play-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            playLibraryTrack(idx);
+        });
+
+        item.querySelector('.library-delete-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            deleteFromLibrary(isrc, idx);
+        });
+
+        // Click on item to play
+        item.addEventListener('click', () => playLibraryTrack(idx));
+    });
+}
+
+async function playLibraryTrack(index) {
+    const track = libraryTracks[index];
+    if (!track) return;
+
+    // Build a track object compatible with the player
+    const playableTrack = {
+        id: track.isrc,
+        isrc: track.isrc,
+        name: track.name || track.isrc,
+        artists: track.artist || 'Library Track',
+        album: track.album || 'Library',
+        album_art: track.album_art || '/static/icon.svg',
+        source: 'library'
+    };
+
+    // Add to queue and play
+    state.queue = [playableTrack];
+    state.currentIndex = 0;
+    updateQueueUI();
+    playTrack(playableTrack);
+    hideLibrary();
+    showToast(`Playing from library: ${playableTrack.name}`);
+}
+
+async function deleteFromLibrary(isrc, index) {
+    if (!confirm('Remove this track from the server library?')) return;
+
+    try {
+        const response = await fetch(`/api/library/${encodeURIComponent(isrc)}`, {
+            method: 'DELETE'
+        });
+
+        if (!response.ok) throw new Error('Failed to delete');
+
+        // Remove from local state
+        libraryTracks.splice(index, 1);
+        delete libraryLookup[isrc];
+        renderLibrary();
+        showToast('Removed from library');
+    } catch (error) {
+        console.error('Library delete error:', error);
+        showToast('Failed to remove from library');
+    }
+}
+
+// Save to Server Library button handler
+if (downloadLibraryBtn) {
+    downloadLibraryBtn.addEventListener('click', async () => {
+        const format = downloadFormat.value;
+        const track = trackToDownload;
+        const isBatch = isBatchDownload;
+
+        closeDownloadModal();
+
+        if (isBatch) {
+            // Batch save to library
+            const tracks = state.detailTracks;
+            updateDownloadUI(2, `Saving ${tracks.length} tracks to server library...`);
+
+            let saved = 0;
+            let failed = 0;
+
+            for (let i = 0; i < tracks.length; i++) {
+                const t = tracks[i];
+                try {
+                    const response = await fetch('/api/library/save', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            isrc: t.isrc || t.id,
+                            q: `${t.name} ${t.artists}`,
+                            format: format.replace('_24', ''), // Use base format
+                            name: t.name,
+                            artist: t.artists,
+                            album: t.album,
+                            album_art: t.album_art
+                        })
+                    });
+
+                    if (response.ok) {
+                        saved++;
+                        libraryLookup[t.isrc || t.id] = true;
+                    } else {
+                        failed++;
+                    }
+                } catch (e) {
+                    failed++;
+                }
+
+                updateDownloadUI(Math.round((i + 1) / tracks.length * 100),
+                    `Saving to library: ${i + 1}/${tracks.length}`);
+            }
+
+            hideDownloadUI();
+            showToast(`Saved ${saved} tracks to library` + (failed ? ` (${failed} failed)` : ''));
+
+        } else if (track) {
+            // Single track save
+            updateDownloadUI(10, `Saving "${track.name}" to server library...`);
+
+            try {
+                const response = await fetch('/api/library/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        isrc: track.isrc || track.id,
+                        q: `${track.name} ${track.artists}`,
+                        format: format.replace('_24', ''),
+                        name: track.name,
+                        artist: track.artists,
+                        album: track.album,
+                        album_art: track.album_art
+                    })
+                });
+
+                updateDownloadUI(90, 'Finalizing...');
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.detail || 'Save failed');
+                }
+
+                const result = await response.json();
+                libraryLookup[track.isrc || track.id] = true;
+
+                hideDownloadUI();
+                showToast(`Saved to library: ${track.name} (${result.size_mb} MB)`);
+
+            } catch (error) {
+                hideDownloadUI();
+                console.error('Library save error:', error);
+                showError(`Failed to save to library: ${error.message}`);
+            }
+        }
+    });
+}
+
+// Check if tracks are in library (for displaying badges)
+async function checkLibraryStatus(isrcs) {
+    if (!isrcs || isrcs.length === 0) return {};
+
+    try {
+        const response = await fetch(`/api/library/check?isrcs=${encodeURIComponent(isrcs.join(','))}`);
+        if (!response.ok) return {};
+        return await response.json();
+    } catch (e) {
+        console.error('Library check error:', e);
+        return {};
+    }
+}
+
+// Helper to check if a track is in library
+function isInLibrary(isrc) {
+    return !!libraryLookup[isrc];
+}
+
 // ========== KEYBOARD SHORTCUTS ==========
 document.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
@@ -2302,31 +2590,70 @@ function updatePlayerUI() {
 // Update audio format badge (FLAC/MP3)
 async function updateFormatBadge(audioSrc) {
     const badge = document.getElementById('audio-format-badge');
+    const sourceBadge = document.getElementById('audio-source-badge');
     if (!badge) return;
-    
+
     // For local files, show nothing
     if (!audioSrc || audioSrc.startsWith('blob:') || audioSrc.startsWith('file:')) {
         badge.classList.add('hidden');
+        if (sourceBadge) sourceBadge.classList.add('hidden');
         return;
     }
-    
+
     // Get current track source to determine actual quality
     const currentTrack = state.queue[state.currentIndex];
     const source = currentTrack?.source || '';
-    
+
     // Determine format based on source
     const isHiResSource = source === 'dab' || source === 'qobuz';
     const isHiFiSource = source === 'deezer' || source === 'jamendo';
     const isLossySource = source === 'ytmusic' || source === 'youtube' || source === 'podcast' || source === 'import';
-    
+    const isLibrarySource = source === 'library';
+
     badge.classList.remove('hidden', 'mp3', 'flac', 'hi-res');
-    
+
+    // Check if playing from server library
+    // First check our local lookup (updated immediately when saving)
+    const trackIsrc = currentTrack?.isrc || currentTrack?.id;
+    let isFromLibrary = isLibrarySource || (trackIsrc && isInLibrary(trackIsrc));
+
+    // If not in local lookup, verify via HEAD request (with cache-busting)
+    if (!isFromLibrary && audioSrc.includes('/api/stream/')) {
+        try {
+            const cacheBuster = `_cb=${Date.now()}`;
+            const separator = audioSrc.includes('?') ? '&' : '?';
+            const response = await fetch(audioSrc + separator + cacheBuster, {
+                method: 'HEAD',
+                cache: 'no-store'
+            });
+            isFromLibrary = response.headers.get('X-Source') === 'library';
+            // Update local lookup if found in library
+            if (isFromLibrary && trackIsrc) {
+                libraryLookup[trackIsrc] = true;
+            }
+        } catch (e) {
+            // Ignore errors
+        }
+    }
+
+    // Update source badge (LOCAL indicator)
+    if (sourceBadge) {
+        if (isFromLibrary) {
+            sourceBadge.classList.remove('hidden');
+            sourceBadge.textContent = 'LOCAL';
+            sourceBadge.title = 'Playing from server library';
+        } else {
+            sourceBadge.classList.add('hidden');
+        }
+    }
+
+    // Update format badge (quality indicator)
     if (isHiResSource && state.hiResMode) {
         // Hi-Res 24-bit (Dab/Qobuz with Hi-Res mode)
         badge.classList.add('flac', 'hi-res');
         badge.textContent = 'Hi-Res';
-    } else if (isHiResSource || isHiFiSource) {
-        // HiFi 16-bit FLAC (Deezer, Jamendo, or Dab without Hi-Res mode)
+    } else if (isHiResSource || isHiFiSource || isFromLibrary) {
+        // HiFi 16-bit FLAC (Deezer, Jamendo, Dab without Hi-Res mode, or Library)
         badge.classList.add('flac');
         badge.textContent = 'FLAC';
     } else if (isLossySource) {
@@ -2341,7 +2668,7 @@ async function updateFormatBadge(audioSrc) {
         }
         badge.textContent = 'FLAC';
     }
-    
+
     // Also update the HiFi button in header
     if (typeof updateHifiButtonUI === 'function') {
         updateHifiButtonUI();

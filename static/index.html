@@ -65,6 +65,7 @@
             <div class="header-actions">
                 <button id="hifi-btn" class="header-btn" title="HiFi Mode - Stream lossless FLAC (faster startup, more data)">HiFi</button>
                 <label for="file-input" class="header-btn" title="Add Local Songs (MP3/FLAC)" style="cursor: pointer; display: inline-flex; align-items: center; justify-content: center;">📂</label>
+                <button id="library-btn" class="header-btn" title="Server Library - View saved tracks">📚</button>
                 <button id="dj-mode-btn" class="header-btn" title="DJ Mode">🎧</button>
                 <button id="sync-btn" class="header-btn" title="Sync with Google Drive">☁️</button>
                 <button id="theme-btn" class="theme-btn" title="Change Theme">🎨</button>
@@ -175,6 +176,7 @@
                 
                 <div class="modal-actions">
                     <button id="download-cancel-btn" class="btn-secondary">Cancel</button>
+                    <button id="download-library-btn" class="btn-secondary" title="Save to Server Library for offline playback">📚 Save to Server</button>
                     <button id="download-drive-btn" class="btn-secondary" title="Save to Google Drive">☁️ Save to Drive</button>
                     <button id="download-confirm-btn" class="btn-primary">Download</button>
                 </div>
@@ -238,6 +240,27 @@
             
             <div id="queue-container" class="queue-container">
                 <!-- Queue items will be inserted here -->
+            </div>
+        </section>
+
+        <!-- Server Library Section -->
+        <section id="library-section" class="library-section hidden">
+            <div class="library-header">
+                <h3>Server Library <span id="library-count">(0 tracks)</span></h3>
+                <div class="library-controls">
+                    <span id="library-size" class="library-size">0 MB</span>
+                    <button id="library-refresh" class="library-refresh-btn" title="Refresh">🔄</button>
+                    <button id="library-close" class="library-close-btn" title="Close Library">×</button>
+                </div>
+            </div>
+            <p class="library-hint">Tracks saved here play instantly without streaming from external sources.</p>
+            <div id="library-container" class="library-container">
+                <!-- Library items will be inserted here -->
+                <div class="library-empty">
+                    <span class="empty-icon">📚</span>
+                    <p>Your server library is empty</p>
+                    <p class="hint">Save tracks using the "Save to Server" button in the download menu</p>
+                </div>
             </div>
         </section>
 
@@ -347,6 +370,7 @@
                             <span id="player-album" class="player-album clickable" title="View album">-</span>
                             <span id="player-year" class="player-year"></span>
                             <span id="audio-format-badge" class="audio-format-badge hidden">MP3</span>
+                            <span id="audio-source-badge" class="audio-source-badge hidden">LOCAL</span>
                         </div>
                     </div>
                 </div>

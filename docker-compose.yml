@@ -27,11 +27,17 @@ services:
       # Optional - Podcasts (falls back to iTunes if not set)
       # - PODCASTINDEX_KEY=your_key
       # - PODCASTINDEX_SECRET=your_secret
+      # Optional - Server Library settings
+      # - LIBRARY_DIR=/app/library
+      # - LIBRARY_MAX_SIZE_GB=0  # 0 = unlimited
     volumes:
       # Persist cache for faster repeated plays
       - freedify-cache:/app/cache
+      # Persist server library (saved tracks for local playback)
+      - freedify-library:/app/library
       # For NAS users with custom paths, use:
       # - /your/nas/path/freedify-cache:/app/cache
+      # - /your/nas/path/freedify-library:/app/library
     restart: unless-stopped
     healthcheck:
       test: [ "CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/api/health')" ]
@@ -41,3 +47,4 @@ services:
 
 volumes:
   freedify-cache:
+  freedify-library:
