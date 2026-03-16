@@ -333,19 +333,37 @@ const shortcutsClose = $('#shortcuts-close');
 
 // ========== SEARCH ==========
 let searchTimeout = null;
-// Only search on Enter key press (not as-you-type to avoid rate limiting)
+// Debounced search with 500ms delay after user stops typing
 
 searchInput.addEventListener('input', (e) => {
-    // Just clear empty state when typing
-    if (!e.target.value.trim()) {
-        showEmptyState();
+    const query = e.target.value.trim();
+
+    // Clear any existing timeout
+    if (searchTimeout) {
+        clearTimeout(searchTimeout);
     }
+
+    if (!query) {
+        // Clear empty state when input is empty
+        showEmptyState();
+        return;
+    }
+
+    // Set new timeout for debounced search
+    searchTimeout = setTimeout(() => {
+        performSearch(query, false, true); // debounced search - no loading overlay
+        searchTimeout = null;
+    }, 500);
 });
 
 searchInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
         e.preventDefault();
-        clearTimeout(searchTimeout);
+        // Clear any pending debounced search
+        if (searchTimeout) {
+            clearTimeout(searchTimeout);
+            searchTimeout = null;
+        }
         const query = searchInput.value.trim();
         if (query) {
             performSearch(query);
@@ -1544,25 +1562,31 @@ function showPlaylistDetail(playlist) {
     showDetailView(albumData, playlist.tracks);
 }
 
-async function performSearch(query, append = false) {
+async function performSearch(query, append = false, silent = false) {
     if (!query) return;
-    
+
     // Track search state for Load More
     if (!append) {
         state.searchOffset = 0;
         state.lastSearchQuery = query;
     }
-    
-    showLoading(append ? 'Loading more...' : `Searching for "${query}"...`);
-    
+
+    // Only show loading overlay for non-silent searches
+    if (!silent) {
+        showLoading(append ? 'Loading more...' : `Searching for "${query}"...`);
+    }
+
     try {
         const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&type=${state.searchType}&offset=${state.searchOffset}`);
         const data = await response.json();
-        
+
         if (!response.ok) throw new Error(data.detail || 'Search failed');
-        
-        hideLoading();
-        
+
+        // Only hide loading overlay for non-silent searches
+        if (!silent) {
+            hideLoading();
+        }
+
         // Check if it was a Spotify URL
         // Check if it was a Spotify/Imported URL
         if (data.is_url) {
@@ -1579,12 +1603,12 @@ async function performSearch(query, append = false) {
                 // Also render it so they can see it
             }
         }
-        
+
         renderResults(data.results, data.type || state.searchType, append);
-        
+
         // Update offset for next load
         state.searchOffset += data.results.length;
-        
+
         // Show/hide Load More button
         const loadMoreBtn = $('#load-more-btn');
         if (loadMoreBtn) {
@@ -1594,7 +1618,7 @@ async function performSearch(query, append = false) {
                 loadMoreBtn.classList.add('hidden');
             }
         }
-        
+
     } catch (error) {
         console.error('Search error:', error);
         showError(error.message || 'Search failed. Please try again.');
