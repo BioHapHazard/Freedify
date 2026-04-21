@@ -42,7 +42,11 @@ export const state = {
     lastSearchType: 'track', // Store last search type
     history: safeLoad('freedify_history', []),
     library: safeLoad('freedify_library', []),
-    playbackSpeed: 1.0, // Default playback speed for podcasts
+    playbackSpeed: parseFloat(localStorage.getItem('freedify_playback_speed')) || 1.0, // Persists across reloads; applies to all audio
+    preservesPitch: localStorage.getItem('freedify_preserves_pitch') !== 'false', // Default true
+    sleepTimer: null, // { endsAt: number|null, endOfTrack: boolean, minutes: number|null }
+    abRepeat: { a: null, b: null }, // Seconds; when both set, loops between them
+    customAccent: localStorage.getItem('freedify_custom_accent') || '', // Optional user-picked accent color
     podcastFavorites: safeLoad('freedify_podcasts', []),
     audiobookFavorites: safeLoad('freedify_audiobooks', []),
     podcastPlayedEpisodes: safeLoad('freedify_podcast_played', {}),

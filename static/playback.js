@@ -4,7 +4,7 @@
  */
 
 import { state } from './state.js';
-import { emit } from './event-bus.js';
+import { emit, on } from './event-bus.js';
 import { showToast, formatTime } from './utils.js';
 import {
     $, audioPlayer, audioPlayer2, playerBar, playerArt, playerTitle,
@@ -237,20 +237,10 @@ export async function updateFormatBadge(audioSrc) {
         return;
     }
 
-    const currentTrack = state.queue[state.currentIndex];
-    const source = currentTrack?.source || '';
-
     if (speedBtn) {
-        if (source === 'podcast' || source === 'audiobook') {
-            speedBtn.classList.remove('hidden');
-            speedBtn.textContent = state.playbackSpeed.toFixed(1) + 'x';
-            if (audioPlayer) { audioPlayer.preservesPitch = true; audioPlayer.playbackRate = state.playbackSpeed; }
-            if (audioPlayer2) { audioPlayer2.preservesPitch = true; audioPlayer2.playbackRate = state.playbackSpeed; }
-        } else {
-            speedBtn.classList.add('hidden');
-            if (audioPlayer) { audioPlayer.preservesPitch = true; audioPlayer.playbackRate = 1.0; }
-            if (audioPlayer2) { audioPlayer2.preservesPitch = true; audioPlayer2.playbackRate = 1.0; }
-        }
+        // Speed control is now available for all audio sources, not just podcasts/audiobooks.
+        speedBtn.classList.remove('hidden');
+        applyPlaybackRate();
     }
 
     badge.classList.remove('hidden', 'mp3', 'flac', 'hi-res');
@@ -452,12 +442,14 @@ export async function loadTrack(track) {
         // audio sample routed through the Web Audio graph.  Without this,
         // the player briefly runs at 1.0× through the EQ filter chain and
         // then abruptly jumps to the target rate, causing crackling.
-        if (track.source === 'podcast' || track.source === 'audiobook') {
-            player.preservesPitch = true;
-            player.playbackRate = state.playbackSpeed;
-        } else {
-            player.preservesPitch = true;
-            player.playbackRate = 1.0;
+        try {
+            const preserve = state.preservesPitch !== false;
+            player.preservesPitch = preserve;
+            player.mozPreservesPitch = preserve;
+            player.webkitPreservesPitch = preserve;
+            player.playbackRate = Number(state.playbackSpeed) || 1.0;
+        } catch (e) {
+            console.warn('[playback] preservesPitch/playbackRate set failed', e);
         }
 
         player.play();
@@ -829,20 +821,68 @@ prevBtn.addEventListener('click', playPrevious);
 if (miniPlayerBtn) miniPlayerBtn.addEventListener('click', () => emit('toggleMiniPlayer'));
 nextBtn.addEventListener('click', () => playNext());
 
-// Playback speed
+// ========== PLAYBACK SPEED ==========
+// Expanded speed options — available for ALL sources (music, podcasts, audiobooks).
+export const PLAYBACK_SPEEDS = [0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
+
+function formatSpeed(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return '1.0x';
+    return (Number.isInteger(n) || n.toFixed(2).endsWith('0') ? n.toFixed(1) : n.toFixed(2)) + 'x';
+}
+
+export function applyPlaybackRate() {
+    const rate = Number(state.playbackSpeed) || 1.0;
+    const preservePitch = state.preservesPitch !== false;
+    [audioPlayer, audioPlayer2].forEach(p => {
+        if (!p) return;
+        try {
+            // preservesPitch is the standard name; prefixed variants for older browsers
+            p.preservesPitch = preservePitch;
+            p.mozPreservesPitch = preservePitch;
+            p.webkitPreservesPitch = preservePitch;
+            p.playbackRate = rate;
+        } catch (e) {
+            console.warn('[playback] Failed to set playbackRate', e);
+        }
+    });
+    const speedBtn = document.getElementById('playback-speed-btn');
+    if (speedBtn) speedBtn.textContent = formatSpeed(rate);
+    try { localStorage.setItem('freedify_playback_speed', String(rate)); } catch {}
+}
+
+export function setPlaybackSpeed(rate, { toast = true } = {}) {
+    const clamped = Math.max(0.25, Math.min(4.0, Number(rate) || 1.0));
+    state.playbackSpeed = Math.round(clamped * 100) / 100;
+    applyPlaybackRate();
+    if (toast) showToast('Speed: ' + formatSpeed(state.playbackSpeed));
+}
+
+export function cyclePlaybackSpeed(direction = 1) {
+    const speeds = PLAYBACK_SPEEDS;
+    // Snap to the closest known speed first, then step
+    let idx = speeds.findIndex(s => Math.abs(s - state.playbackSpeed) < 0.01);
+    if (idx === -1) {
+        idx = speeds.reduce((best, s, i) =>
+            Math.abs(s - state.playbackSpeed) < Math.abs(speeds[best] - state.playbackSpeed) ? i : best, 0);
+    }
+    const next = speeds[(idx + direction + speeds.length) % speeds.length];
+    setPlaybackSpeed(next);
+}
+
 const playbackSpeedBtn = document.getElementById('playback-speed-btn');
 if (playbackSpeedBtn) {
-    playbackSpeedBtn.addEventListener('click', () => {
-        const speeds = [1.0, 1.25, 1.5, 2.0];
-        const currentIdx = speeds.indexOf(state.playbackSpeed) !== -1 ? speeds.indexOf(state.playbackSpeed) : 0;
-        state.playbackSpeed = speeds[(currentIdx + 1) % speeds.length];
-
-        playbackSpeedBtn.textContent = state.playbackSpeed.toFixed(1) + 'x';
-
-        if (audioPlayer) { audioPlayer.preservesPitch = true; audioPlayer.playbackRate = state.playbackSpeed; }
-        if (audioPlayer2) { audioPlayer2.preservesPitch = true; audioPlayer2.playbackRate = state.playbackSpeed; }
-    });
+    playbackSpeedBtn.addEventListener('click', () => cyclePlaybackSpeed(1));
+    playbackSpeedBtn.addEventListener('contextmenu', (e) => { e.preventDefault(); cyclePlaybackSpeed(-1); });
 }
+
+// Apply saved speed immediately on module load (so new tracks start at the right rate).
+applyPlaybackRate();
+
+// Bridge: allow other modules (ui.js settings slider, shortcuts) to drive speed without importing
+on('setPlaybackSpeed', (v) => setPlaybackSpeed(v, { toast: false }));
+on('preservesPitchChanged', () => applyPlaybackRate());
+on('sleepTimerFired', () => { try { updatePlayButton(); } catch {} });
 
 // Shuffle queue
 shuffleQueueBtn.addEventListener('click', () => {
@@ -1433,8 +1473,85 @@ document.addEventListener('keydown', (e) => {
         case 'Q':
             queueSection.classList.toggle('hidden');
             break;
+        case '[':
+            e.preventDefault();
+            cyclePlaybackSpeed(-1);
+            break;
+        case ']':
+            e.preventDefault();
+            cyclePlaybackSpeed(1);
+            break;
+        case '\\':
+            e.preventDefault();
+            setPlaybackSpeed(1.0);
+            break;
+        case 't':
+        case 'T':
+            e.preventDefault();
+            emit('cycleTheme', e.shiftKey ? -1 : 1);
+            break;
+        case 'b':
+        case 'B':
+            e.preventDefault();
+            setABRepeatPoint();
+            break;
+        case 'z':
+        case 'Z':
+            e.preventDefault();
+            clearABRepeat();
+            break;
+        case 'n':
+        case 'N':
+            e.preventDefault();
+            emit('sleepTimerNudge', 15);
+            break;
+        case '/':
+            if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+                e.preventDefault();
+                if (searchInput) { searchInput.focus(); searchInput.select?.(); }
+            }
+            break;
         case '?':
             shortcutsHelp.classList.toggle('hidden');
             break;
     }
 });
+
+// ========== A-B REPEAT ==========
+export function setABRepeatPoint() {
+    const player = getActivePlayer();
+    const t = player?.currentTime;
+    if (!Number.isFinite(t)) return;
+    if (state.abRepeat.a == null) {
+        state.abRepeat.a = t;
+        showToast(`A-B: A point set at ${formatTime(t)}`);
+    } else if (state.abRepeat.b == null) {
+        if (t <= state.abRepeat.a + 0.5) {
+            showToast('A-B: B must be after A — pick a later point');
+            return;
+        }
+        state.abRepeat.b = t;
+        showToast(`A-B: looping ${formatTime(state.abRepeat.a)} → ${formatTime(t)}`);
+    } else {
+        // Cycle through: third press clears
+        clearABRepeat();
+    }
+}
+
+export function clearABRepeat() {
+    if (state.abRepeat.a == null && state.abRepeat.b == null) return;
+    state.abRepeat.a = null;
+    state.abRepeat.b = null;
+    showToast('A-B repeat cleared');
+}
+
+function maybeApplyABRepeat() {
+    const { a, b } = state.abRepeat;
+    if (a == null || b == null) return;
+    const player = getActivePlayer();
+    if (!player) return;
+    if (player.currentTime >= b) {
+        try { player.currentTime = a; } catch {}
+    }
+}
+setInterval(maybeApplyABRepeat, 250);
