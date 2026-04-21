@@ -70,3 +70,88 @@ export function showToast(message, duration = 3000) {
         setTimeout(() => toast.remove(), 300);
     }, duration);
 }
+
+/**
+ * fetchWithRetry — resilient wrapper around fetch with exponential backoff.
+ *
+ * Retries on network errors and on retriable HTTP statuses (408, 429, 5xx),
+ * honoring `Retry-After` when present.  Bails early if the caller's AbortSignal
+ * is tripped.
+ *
+ * @param {string|Request} input
+ * @param {RequestInit & {retries?:number,backoff?:number,retryOn?:(res:Response)=>boolean}} [init]
+ */
+export async function fetchWithRetry(input, init = {}) {
+    const {
+        retries = 3,
+        backoff = 400,
+        retryOn = (res) => [408, 425, 429, 500, 502, 503, 504].includes(res.status),
+        ...rest
+    } = init;
+
+    let lastErr = null;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+        if (rest.signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+        try {
+            const res = await fetch(input, rest);
+            if (res.ok) return res;
+            if (attempt >= retries || !retryOn(res)) return res;
+
+            // Honor Retry-After if present
+            let delay = backoff * Math.pow(2, attempt) + Math.random() * 200;
+            const ra = res.headers.get('Retry-After');
+            if (ra) {
+                const raNum = Number(ra);
+                if (Number.isFinite(raNum) && raNum > 0) delay = Math.max(delay, raNum * 1000);
+            }
+            await new Promise(r => setTimeout(r, delay));
+        } catch (err) {
+            lastErr = err;
+            if (err?.name === 'AbortError') throw err;
+            if (attempt >= retries) throw err;
+            await new Promise(r => setTimeout(r, backoff * Math.pow(2, attempt) + Math.random() * 200));
+        }
+    }
+    if (lastErr) throw lastErr;
+    throw new Error('fetchWithRetry: exhausted retries');
+}
+
+/** Convenience: same as fetchWithRetry but also parses JSON. */
+export async function fetchJsonWithRetry(input, init = {}) {
+    const res = await fetchWithRetry(input, init);
+    if (!res.ok) throw new Error(`HTTP ${res.status} — ${res.statusText}`);
+    return res.json();
+}
+
+/**
+ * Debounce helper — collapses bursts of calls into one.
+ */
+export function debounce(fn, wait = 200) {
+    let t = null;
+    return function (...args) {
+        if (t) clearTimeout(t);
+        t = setTimeout(() => { t = null; fn.apply(this, args); }, wait);
+    };
+}
+
+/**
+ * Throttle helper — guarantees at most one call every `wait` ms.
+ */
+export function throttle(fn, wait = 200) {
+    let last = 0;
+    let pending = null;
+    return function (...args) {
+        const now = Date.now();
+        if (now - last >= wait) {
+            last = now;
+            fn.apply(this, args);
+        } else {
+            if (pending) clearTimeout(pending);
+            pending = setTimeout(() => {
+                last = Date.now();
+                pending = null;
+                fn.apply(this, args);
+            }, wait - (now - last));
+        }
+    };
+}

@@ -141,6 +141,344 @@
     --accent-glow: rgba(255, 0, 127, 0.3);
 }
 
+.theme-light {
+    --bg-primary: #fafafa;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #f1f3f5;
+    --bg-elevated: #e9ecef;
+
+    --text-primary: #1a1a1a;
+    --text-secondary: #4b5563;
+    --text-tertiary: #6b7280;
+
+    --accent: #6366f1;
+    --accent-light: #818cf8;
+    --accent-dark: #4f46e5;
+    --accent-glow: rgba(99, 102, 241, 0.2);
+}
+
+.theme-red {
+    --accent: #ef4444;
+    --accent-light: #f87171;
+    --accent-dark: #dc2626;
+    --accent-glow: rgba(239, 68, 68, 0.3);
+}
+
+.theme-cyan {
+    --accent: #06b6d4;
+    --accent-light: #22d3ee;
+    --accent-dark: #0891b2;
+    --accent-glow: rgba(6, 182, 212, 0.3);
+}
+
+.theme-nord {
+    --bg-primary: #2e3440;
+    --bg-secondary: #272c36;
+    --bg-tertiary: #3b4252;
+    --bg-elevated: #434c5e;
+
+    --text-primary: #eceff4;
+    --text-secondary: #d8dee9;
+    --text-tertiary: #81a1c1;
+
+    --accent: #88c0d0;
+    --accent-light: #8fbcbb;
+    --accent-dark: #5e81ac;
+    --accent-glow: rgba(136, 192, 208, 0.3);
+}
+
+.theme-gruvbox {
+    --bg-primary: #282828;
+    --bg-secondary: #1d2021;
+    --bg-tertiary: #3c3836;
+    --bg-elevated: #504945;
+
+    --text-primary: #ebdbb2;
+    --text-secondary: #d5c4a1;
+    --text-tertiary: #a89984;
+
+    --accent: #fabd2f;
+    --accent-light: #fe8019;
+    --accent-dark: #d79921;
+    --accent-glow: rgba(250, 189, 47, 0.3);
+}
+
+.theme-tokyo {
+    --bg-primary: #1a1b26;
+    --bg-secondary: #16161e;
+    --bg-tertiary: #24283b;
+    --bg-elevated: #414868;
+
+    --text-primary: #c0caf5;
+    --text-secondary: #a9b1d6;
+    --text-tertiary: #565f89;
+
+    --accent: #7aa2f7;
+    --accent-light: #bb9af7;
+    --accent-dark: #5c7cfa;
+    --accent-glow: rgba(122, 162, 247, 0.3);
+}
+
+.theme-rose-pine {
+    --bg-primary: #191724;
+    --bg-secondary: #1f1d2e;
+    --bg-tertiary: #26233a;
+    --bg-elevated: #403d52;
+
+    --text-primary: #e0def4;
+    --text-secondary: #c4a7e7;
+    --text-tertiary: #908caa;
+
+    --accent: #eb6f92;
+    --accent-light: #f6c177;
+    --accent-dark: #9ccfd8;
+    --accent-glow: rgba(235, 111, 146, 0.3);
+}
+
+.theme-solarized-dark {
+    --bg-primary: #002b36;
+    --bg-secondary: #073642;
+    --bg-tertiary: #0e4551;
+    --bg-elevated: #586e75;
+
+    --text-primary: #eee8d5;
+    --text-secondary: #93a1a1;
+    --text-tertiary: #657b83;
+
+    --accent: #b58900;
+    --accent-light: #cb4b16;
+    --accent-dark: #859900;
+    --accent-glow: rgba(181, 137, 0, 0.3);
+}
+
+.theme-monokai {
+    --bg-primary: #272822;
+    --bg-secondary: #1e1f1c;
+    --bg-tertiary: #3e3d32;
+    --bg-elevated: #49483e;
+
+    --text-primary: #f8f8f2;
+    --text-secondary: #a6e22e;
+    --text-tertiary: #75715e;
+
+    --accent: #f92672;
+    --accent-light: #fd971f;
+    --accent-dark: #ae81ff;
+    --accent-glow: rgba(249, 38, 114, 0.3);
+}
+
+.theme-one-dark {
+    --bg-primary: #282c34;
+    --bg-secondary: #21252b;
+    --bg-tertiary: #3e4451;
+    --bg-elevated: #4b5263;
+
+    --text-primary: #abb2bf;
+    --text-secondary: #9da5b4;
+    --text-tertiary: #5c6370;
+
+    --accent: #61afef;
+    --accent-light: #c678dd;
+    --accent-dark: #56b6c2;
+    --accent-glow: rgba(97, 175, 239, 0.3);
+}
+
+.theme-synthwave {
+    --bg-primary: #16003c;
+    --bg-secondary: #0f0028;
+    --bg-tertiary: #2b0a6d;
+    --bg-elevated: #4d148c;
+
+    --text-primary: #f0e6ff;
+    --text-secondary: #ff71ce;
+    --text-tertiary: #b967ff;
+
+    --accent: #ff71ce;
+    --accent-light: #fdfd96;
+    --accent-dark: #01cdfe;
+    --accent-glow: rgba(255, 113, 206, 0.4);
+}
+
+.theme-matrix {
+    --bg-primary: #000000;
+    --bg-secondary: #030d03;
+    --bg-tertiary: #081708;
+    --bg-elevated: #0e2a0e;
+
+    --text-primary: #00ff41;
+    --text-secondary: #00c030;
+    --text-tertiary: #007c1e;
+
+    --accent: #00ff41;
+    --accent-light: #5fff88;
+    --accent-dark: #00b22d;
+    --accent-glow: rgba(0, 255, 65, 0.35);
+}
+
+.theme-sunset {
+    --bg-primary: #1b0f24;
+    --bg-secondary: #130a1b;
+    --bg-tertiary: #2f1636;
+    --bg-elevated: #5a1e4d;
+
+    --text-primary: #ffe7d6;
+    --text-secondary: #ffb199;
+    --text-tertiary: #f97373;
+
+    --accent: #ff7b54;
+    --accent-light: #ffd56b;
+    --accent-dark: #c84b6e;
+    --accent-glow: rgba(255, 123, 84, 0.35);
+}
+
+.theme-ocean {
+    --bg-primary: #021526;
+    --bg-secondary: #03223d;
+    --bg-tertiary: #063154;
+    --bg-elevated: #0a4273;
+
+    --text-primary: #e0f2fe;
+    --text-secondary: #93c5fd;
+    --text-tertiary: #64b5f6;
+
+    --accent: #0ea5e9;
+    --accent-light: #38bdf8;
+    --accent-dark: #0369a1;
+    --accent-glow: rgba(14, 165, 233, 0.3);
+}
+
+.theme-forest {
+    --bg-primary: #0f1a12;
+    --bg-secondary: #0a1310;
+    --bg-tertiary: #17261c;
+    --bg-elevated: #1f3a29;
+
+    --text-primary: #dff4e2;
+    --text-secondary: #a8d1b0;
+    --text-tertiary: #6b9072;
+
+    --accent: #4ade80;
+    --accent-light: #86efac;
+    --accent-dark: #16a34a;
+    --accent-glow: rgba(74, 222, 128, 0.3);
+}
+
+.theme-coffee {
+    --bg-primary: #2c1810;
+    --bg-secondary: #20110a;
+    --bg-tertiary: #3c241a;
+    --bg-elevated: #5c3a26;
+
+    --text-primary: #f4e4cf;
+    --text-secondary: #d4a574;
+    --text-tertiary: #a97f49;
+
+    --accent: #c98a4b;
+    --accent-light: #e6b98b;
+    --accent-dark: #8b5a2b;
+    --accent-glow: rgba(201, 138, 75, 0.3);
+}
+
+.theme-mono {
+    --bg-primary: #111111;
+    --bg-secondary: #191919;
+    --bg-tertiary: #232323;
+    --bg-elevated: #2e2e2e;
+
+    --text-primary: #f5f5f5;
+    --text-secondary: #bdbdbd;
+    --text-tertiary: #8a8a8a;
+
+    --accent: #e5e5e5;
+    --accent-light: #ffffff;
+    --accent-dark: #bdbdbd;
+    --accent-glow: rgba(255, 255, 255, 0.2);
+}
+
+.theme-high-contrast {
+    --bg-primary: #000000;
+    --bg-secondary: #0a0a0a;
+    --bg-tertiary: #161616;
+    --bg-elevated: #242424;
+
+    --text-primary: #ffffff;
+    --text-secondary: #ffffff;
+    --text-tertiary: #f5f5f5;
+
+    --accent: #ffeb3b;
+    --accent-light: #ffffff;
+    --accent-dark: #ffc107;
+    --accent-glow: rgba(255, 235, 59, 0.5);
+}
+
+/* ==================== Keyboard shortcut list ==================== */
+.shortcuts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: var(--spacing-sm) var(--spacing-md);
+    padding: var(--spacing-sm) 0;
+}
+
+.shortcuts-grid > div {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+    font-size: 0.92rem;
+    color: var(--text-secondary);
+}
+
+.shortcuts-grid kbd {
+    display: inline-block;
+    padding: 2px 8px;
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--accent-dark);
+    border-radius: 6px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.82rem;
+    box-shadow: 0 1px 0 var(--accent-dark);
+}
+
+/* ==================== Inline settings rows ==================== */
+.settings-inline-row {
+    display: flex !important;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.settings-inline-row input[type="checkbox"] { transform: scale(1.25); }
+.settings-inline-row input[type="color"] {
+    width: 42px;
+    height: 30px;
+    border: 1px solid var(--accent-dark);
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+    padding: 2px;
+}
+.settings-inline-row select {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--accent-dark);
+    border-radius: 6px;
+    padding: 4px 8px;
+}
+.settings-chip {
+    background: var(--bg-elevated);
+    color: var(--text-primary);
+    border: 1px solid var(--accent-dark);
+    border-radius: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+.settings-chip:hover { background: var(--accent); color: #fff; }
+.settings-meta {
+    font-size: 0.82rem;
+    color: var(--text-tertiary);
+    padding: 0 var(--spacing-sm) var(--spacing-xs);
+}
+
 /* ==================== Reset & Base ==================== */
 *, *::before, *::after {
     box-sizing: border-box;

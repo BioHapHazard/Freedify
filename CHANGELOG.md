@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased — Community Fork]
+
+### Added
+- **18 new themes** — Light, Red, Cyan, Nord, Gruvbox, Tokyo Night, Rosé Pine, Solarized Dark, Monokai, One Dark, Synthwave, Matrix, Sunset, Ocean, Forest, Coffee, Mono, and High Contrast (now 28 themes total).
+- **Custom accent color** — Pick any color as the `--accent` override from the Settings modal; persists across sessions and can be cleared with a single click.
+- **Expanded playback speed** — Now available for **all** sources (music, podcasts, audiobooks) instead of just podcasts/audiobooks. 11-step preset ladder (0.5× → 3×), plus a fine-grained slider in Settings (0.5× – 3× in 0.05 increments). Pitch preservation is togglable (chipmunk mode).
+- **Sleep timer** — Auto-pause after 5/10/15/30/45 min, 1h, 1.5h, 2h, or "end of current track". Live countdown displayed in Settings.
+- **A-B repeat loop** — Mark two points on any track (keyboard `B` / `Z`) to loop a section. Useful for practicing parts of a song or a specific passage in an audiobook.
+- **Resilient `fetch` utility** — New `fetchWithRetry` / `fetchJsonWithRetry` helpers with exponential backoff, `Retry-After` honoring, and retriable-status detection (408, 425, 429, 5xx).
+- **Self-healing error handler** — Global `error` + `unhandledrejection` listeners log context to the console and show rate-limited toasts so users know something hiccupped, without crashing playback.
+- **Diagnostics panel** — "Run Diagnostics" button in Settings probes `/api/health`, localStorage, audio element, MediaSession, service worker, and core state integrity, then reports a pass/fail summary.
+- **Expanded keyboard shortcuts** — `[` / `]` speed down/up, `\` reset speed, `T` / `Shift+T` cycle themes, `B` set A-B point, `Z` clear A-B, `N` nudge sleep timer +15 min, `/` focus search.
+- **Utility helpers** — `debounce` and `throttle` added to `utils.js` for call-rate-limited event handlers across modules.
+
+### Changed
+- **Theme handling** — Switched from hard-coded class-removal list to a regex-based scrub of any `theme-*` class, so new themes never break the picker. `applyTheme()` / `cycleTheme()` now exported for reuse.
+- **Playback speed UI** — Speed button is always visible (not hidden for music); right-click (context menu) on the speed button now cycles backwards. Saved speed applies immediately on module load, before the first track plays.
+- **More menu** — Removed donate link from the "More" menu. Fewer distractions while browsing. (The original Support section in Settings is preserved for existing users.)
+
+### Fixed
+- Theme picker previously only removed a fixed list of ~10 theme classes, so any new theme would accumulate stale classes on `body`. Now scrubs *all* `theme-*` classes.
+- `playbackRate` / `preservesPitch` setters are now wrapped in `try/catch` so a single browser without support doesn't break audio.
+- `<meta name="theme-color">` updates now run inside `requestAnimationFrame` so the accent variable is re-resolved after the class swap.
+
+---
+
 ## [1.4.8] - 2026-04-18
 
 ### Fixed

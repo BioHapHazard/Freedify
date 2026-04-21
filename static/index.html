@@ -51,6 +51,15 @@
                 <div class="shortcut"><kbd>L</kbd><span>Lyrics</span></div>
                 <div class="shortcut"><kbd>V</kbd><span>Music Video</span></div>
                 <div class="shortcut"><kbd>Shift + S</kbd><span>Sync to Drive</span></div>
+                <div class="shortcut"><kbd>[</kbd><span>Slower</span></div>
+                <div class="shortcut"><kbd>]</kbd><span>Faster</span></div>
+                <div class="shortcut"><kbd>\</kbd><span>Reset speed to 1.0x</span></div>
+                <div class="shortcut"><kbd>T</kbd><span>Cycle theme</span></div>
+                <div class="shortcut"><kbd>Shift + T</kbd><span>Cycle theme (reverse)</span></div>
+                <div class="shortcut"><kbd>B</kbd><span>Set A-B repeat point</span></div>
+                <div class="shortcut"><kbd>Z</kbd><span>Clear A-B repeat</span></div>
+                <div class="shortcut"><kbd>N</kbd><span>Sleep timer +15 min</span></div>
+                <div class="shortcut"><kbd>/</kbd><span>Focus search</span></div>
                 <div class="shortcut"><kbd>?</kbd><span>This Help</span></div>
             </div>
         </div>
@@ -141,21 +150,71 @@
                         <h3 class="settings-section-title">Appearance</h3>
                         <div id="theme-picker" class="settings-theme-grid">
                             <div class="theme-option" data-theme="">🌙 Default</div>
+                            <div class="theme-option" data-theme="theme-light">☀️ Light</div>
                             <div class="theme-option" data-theme="theme-purple">💜 Purple</div>
                             <div class="theme-option" data-theme="theme-blue">💙 Blue</div>
                             <div class="theme-option" data-theme="theme-green">💚 Green</div>
                             <div class="theme-option" data-theme="theme-pink">💕 Pink</div>
                             <div class="theme-option" data-theme="theme-orange">🧡 Orange</div>
+                            <div class="theme-option" data-theme="theme-red">❤️ Red</div>
+                            <div class="theme-option" data-theme="theme-cyan">🩵 Cyan</div>
                             <div class="theme-option" data-theme="theme-dracula">🧛 Dracula</div>
                             <div class="theme-option" data-theme="theme-catppuccin">☕ Catppuccin</div>
                             <div class="theme-option" data-theme="theme-nightowl">🦉 Night Owl</div>
                             <div class="theme-option" data-theme="theme-nuclear">☢️ Nuclear</div>
+                            <div class="theme-option" data-theme="theme-nord">❄️ Nord</div>
+                            <div class="theme-option" data-theme="theme-gruvbox">🍂 Gruvbox</div>
+                            <div class="theme-option" data-theme="theme-tokyo">🗼 Tokyo Night</div>
+                            <div class="theme-option" data-theme="theme-rose-pine">🌹 Rosé Pine</div>
+                            <div class="theme-option" data-theme="theme-solarized-dark">🌒 Solarized</div>
+                            <div class="theme-option" data-theme="theme-monokai">🎨 Monokai</div>
+                            <div class="theme-option" data-theme="theme-one-dark">🧊 One Dark</div>
+                            <div class="theme-option" data-theme="theme-synthwave">🌆 Synthwave</div>
+                            <div class="theme-option" data-theme="theme-matrix">💾 Matrix</div>
+                            <div class="theme-option" data-theme="theme-sunset">🌅 Sunset</div>
+                            <div class="theme-option" data-theme="theme-ocean">🌊 Ocean</div>
+                            <div class="theme-option" data-theme="theme-forest">🌲 Forest</div>
+                            <div class="theme-option" data-theme="theme-coffee">☕ Coffee</div>
+                            <div class="theme-option" data-theme="theme-mono">⚫ Mono</div>
+                            <div class="theme-option" data-theme="theme-high-contrast">🔲 High Contrast</div>
+                        </div>
+                        <div class="settings-item settings-inline-row">
+                            <label for="custom-accent-input" style="flex:1;">Custom accent</label>
+                            <input type="color" id="custom-accent-input" title="Custom accent color" aria-label="Custom accent color">
+                            <button id="custom-accent-clear" class="settings-chip" title="Reset to theme default">Clear</button>
                         </div>
                     </div>
-                    <!-- Support -->
+                    <!-- Advanced Playback -->
                     <div class="settings-section">
-                        <h3 class="settings-section-title">Support</h3>
-                        <a href="https://pally.gg/p/freedify" target="_blank" rel="noopener noreferrer" class="settings-item" style="text-decoration: none; color: inherit;">Donate</a>
+                        <h3 class="settings-section-title">Advanced Playback</h3>
+                        <div class="settings-item settings-inline-row" title="Default playback speed (music, podcasts, audiobooks)">
+                            <label for="settings-speed-slider" style="flex:1;">Default Speed: <span id="settings-speed-value">1.0x</span></label>
+                            <input type="range" id="settings-speed-slider" min="0.5" max="3" step="0.05" value="1" style="flex:2;">
+                        </div>
+                        <label class="settings-item settings-inline-row" style="cursor:pointer;">
+                            <span style="flex:1;">Preserve pitch when changing speed</span>
+                            <input type="checkbox" id="settings-preserve-pitch">
+                        </label>
+                        <div class="settings-divider"></div>
+                        <div class="settings-item settings-inline-row" title="Auto-pause playback after a set time">
+                            <label style="flex:1;">Sleep timer</label>
+                            <select id="sleep-timer-select">
+                                <option value="0">Off</option>
+                                <option value="5">5 minutes</option>
+                                <option value="10">10 minutes</option>
+                                <option value="15">15 minutes</option>
+                                <option value="30">30 minutes</option>
+                                <option value="45">45 minutes</option>
+                                <option value="60">1 hour</option>
+                                <option value="90">1.5 hours</option>
+                                <option value="120">2 hours</option>
+                                <option value="eot">End of track</option>
+                            </select>
+                        </div>
+                        <div id="sleep-timer-status" class="settings-meta hidden" aria-live="polite"></div>
+                        <div class="settings-divider"></div>
+                        <button class="settings-item" id="shortcuts-help-btn" title="Keyboard shortcuts">⌨️ Keyboard Shortcuts</button>
+                        <button class="settings-item" id="diagnostics-btn" title="Run self-diagnostics">🩺 Run Diagnostics</button>
                     </div>
                 </div>
             </div>
@@ -194,8 +253,6 @@
                 <button class="menu-item type-btn-menu" data-type="rec">For You</button>
                 <button class="menu-item type-btn-menu" data-type="setlist">Setlists</button>
                 <button class="menu-item" id="concert-search-menu-btn">Concert Search</button>
-                <div class="menu-divider"></div>
-                <a href="https://pally.gg/p/freedify" target="_blank" rel="noopener noreferrer" class="menu-item" style="text-decoration: none; color: inherit; display: block;">Donate</a>
             </div>
         </section>
 

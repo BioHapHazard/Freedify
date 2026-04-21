@@ -1,15 +1,16 @@
 # Freedify - Music Streaming Web App
 
-```markdown
-*Last updated: March 25, 2026*
-```
-
 Stream music and podcasts from anywhere. **Generate smart playlists with AI**, search songs, albums, artists, podcasts or paste URLs from Spotify, SoundCloud, Bandcamp, Archive.org, Phish.in, and more.
 
-> 💖 **Support Freedify!** If you enjoy using Freedify and want to support its ongoing development and new features, please consider making a donation: **[Donate on Pally.gg](https://pally.gg/p/freedify)**. Any amount is incredibly appreciated and helps keep the music playing!
+> This is a community fork of [BioHapHazard/Freedify](https://github.com/BioHapHazard/Freedify)
+> focused on performance, resilience, and feature polish. See [CHANGELOG.md](CHANGELOG.md) for
+> fork-specific changes (new themes, expanded playback speed, sleep timer, A-B repeat,
+> self-healing error recovery, resilient `fetch` with retries, keyboard-shortcut expansion,
+> custom accent color, and more).
 
 > [!IMPORTANT]
-> **New to Freedify?** check out our **[Visual Deployment Guide](https://biohaphazard.github.io/Freedify/guide.html)** for easy step-by-step setup instructions (Localhost, Railway, & Render).
+> **New to Freedify?** Check the [deployment options](#-quick-start-docker) below for
+> step-by-step setup (Docker, Localhost, Railway, & Render).
 
 ## 🐳 Quick Start (Docker)
 

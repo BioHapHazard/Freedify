@@ -5,7 +5,7 @@
 
 import { state } from './state.js';
 import { escapeHtml, showToast } from './utils.js';
-import { emit } from './event-bus.js';
+import { emit, on } from './event-bus.js';
 import { getMoodStatsForWeek } from './data.js';
 import {
     $, $$, loadingOverlay, loadingText, errorMessage, errorText,
@@ -274,53 +274,94 @@ document.addEventListener('keydown', (e) => {
 const themePicker = $('#theme-picker');
 const themeOptions = $$('.theme-option');
 
+// Source of truth for available theme class names (must stay in sync with index.html + styles.css)
+const THEME_CLASSES = Array.from(themeOptions)
+    .map(o => o.dataset.theme)
+    .filter(Boolean);
+
+function clearThemeClasses() {
+    // Remove any previously-applied theme-* class (future-proof, won't break if new themes added)
+    const toRemove = Array.from(document.body.classList).filter(c => c.startsWith('theme-'));
+    toRemove.forEach(c => document.body.classList.remove(c));
+}
+
+function syncMetaThemeColor() {
+    const metaThemeColor = document.querySelector('meta[name="theme-color"]');
+    if (!metaThemeColor) return;
+    // Defer one frame so CSS variables are re-resolved against the new theme class
+    requestAnimationFrame(() => {
+        const accentColor = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+        if (accentColor) metaThemeColor.content = accentColor;
+    });
+}
+
+function applyCustomAccent(color) {
+    if (color) {
+        document.documentElement.style.setProperty('--accent', color);
+        document.documentElement.style.setProperty('--accent-light', color);
+        document.documentElement.style.setProperty('--accent-dark', color);
+        document.documentElement.style.setProperty('--accent-glow', color + '55');
+    } else {
+        document.documentElement.style.removeProperty('--accent');
+        document.documentElement.style.removeProperty('--accent-light');
+        document.documentElement.style.removeProperty('--accent-dark');
+        document.documentElement.style.removeProperty('--accent-glow');
+    }
+    syncMetaThemeColor();
+}
+
+export function applyTheme(themeName, { persist = true, silent = false } = {}) {
+    clearThemeClasses();
+    if (themeName) document.body.classList.add(themeName);
+    if (persist) localStorage.setItem('freedify_theme', themeName || '');
+    themeOptions.forEach(o => o.classList.toggle('active', o.dataset.theme === (themeName || '')));
+    if (state.customAccent) applyCustomAccent(state.customAccent);
+    else syncMetaThemeColor();
+    if (!silent) {
+        const opt = Array.from(themeOptions).find(o => o.dataset.theme === (themeName || ''));
+        if (opt) showToast(`Theme: ${opt.textContent.trim()}`);
+    }
+}
+
+export function cycleTheme(direction = 1) {
+    const current = localStorage.getItem('freedify_theme') || '';
+    const list = ['', ...THEME_CLASSES];
+    const idx = list.indexOf(current);
+    const next = list[((idx === -1 ? 0 : idx) + direction + list.length) % list.length];
+    applyTheme(next);
+}
+
 // Load saved theme on startup
 (function loadSavedTheme() {
     const savedTheme = localStorage.getItem('freedify_theme') || '';
-    if (savedTheme) {
-        document.body.classList.add(savedTheme);
-    }
-    themeOptions.forEach(opt => {
-        if (opt.dataset.theme === savedTheme) {
-            opt.classList.add('active');
-        }
-    });
-
-    const metaThemeColor = document.querySelector('meta[name="theme-color"]');
-    if (metaThemeColor && savedTheme) {
-        setTimeout(() => {
-            const accentColor = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
-            if (accentColor) metaThemeColor.content = accentColor;
-        }, 50);
-    }
+    applyTheme(savedTheme, { persist: false, silent: true });
 })();
 
 themeOptions.forEach(opt => {
-    opt.addEventListener('click', () => {
-        const newTheme = opt.dataset.theme;
-
-        document.body.classList.remove('theme-purple', 'theme-blue', 'theme-green', 'theme-pink', 'theme-orange', 'theme-dracula', 'theme-catppuccin', 'theme-nightowl', 'theme-nuclear');
-
-        if (newTheme) {
-            document.body.classList.add(newTheme);
-        }
-
-        localStorage.setItem('freedify_theme', newTheme);
-
-        themeOptions.forEach(o => o.classList.remove('active'));
-        opt.classList.add('active');
-
-        showToast(`Theme changed to ${opt.textContent}`);
-
-        const metaThemeColor = document.querySelector('meta[name="theme-color"]');
-        if (metaThemeColor) {
-            setTimeout(() => {
-                const accentColor = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
-                if (accentColor) metaThemeColor.content = accentColor;
-            }, 50);
-        }
-    });
+    opt.addEventListener('click', () => applyTheme(opt.dataset.theme));
 });
+
+// ========== CUSTOM ACCENT COLOR ==========
+const customAccentInput = $('#custom-accent-input');
+const customAccentClear = $('#custom-accent-clear');
+if (customAccentInput) {
+    if (state.customAccent) customAccentInput.value = state.customAccent;
+    applyCustomAccent(state.customAccent);
+    customAccentInput.addEventListener('input', (e) => {
+        const color = e.target.value;
+        state.customAccent = color;
+        localStorage.setItem('freedify_custom_accent', color);
+        applyCustomAccent(color);
+    });
+}
+if (customAccentClear) {
+    customAccentClear.addEventListener('click', () => {
+        state.customAccent = '';
+        localStorage.removeItem('freedify_custom_accent');
+        applyCustomAccent('');
+        showToast('Custom accent cleared');
+    });
+}
 
 // ========== HiFi MODE ==========
 const hifiBtn = $('#hifi-btn');
@@ -458,3 +499,237 @@ export function renderMoodSelector(containerEl) {
         });
     }
 }
+
+// ========== EVENT-BUS: THEME CYCLE ==========
+on('cycleTheme', (direction) => cycleTheme(direction || 1));
+
+// ========== KEYBOARD SHORTCUTS BUTTON (settings modal) ==========
+(function initShortcutsHelpButton() {
+    const btn = $('#shortcuts-help-btn');
+    const help = $('#shortcuts-help');
+    if (btn && help) {
+        btn.addEventListener('click', () => {
+            help.classList.remove('hidden');
+            // Also close settings modal so help is visible in front
+            settingsModal?.classList.add('hidden');
+        });
+    }
+})();
+
+// ========== SLEEP TIMER ==========
+const sleepSelect = $('#sleep-timer-select');
+const sleepStatus = $('#sleep-timer-status');
+let sleepIntervalId = null;
+
+function clearSleepTimer() {
+    if (sleepIntervalId) {
+        clearInterval(sleepIntervalId);
+        sleepIntervalId = null;
+    }
+    state.sleepTimer = null;
+    if (sleepStatus) {
+        sleepStatus.classList.add('hidden');
+        sleepStatus.textContent = '';
+    }
+}
+
+function formatRemaining(ms) {
+    const s = Math.max(0, Math.ceil(ms / 1000));
+    const mins = Math.floor(s / 60);
+    const secs = s % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
+
+function fireSleepPause() {
+    try {
+        const ap = document.getElementById('audio-player');
+        const ap2 = document.getElementById('audio-player-2');
+        [ap, ap2].forEach(p => { if (p && !p.paused) p.pause(); });
+        state.isPlaying = false;
+        // Update play button via event bus
+        emit('sleepTimerFired');
+        showToast('😴 Sleep timer — playback paused');
+    } catch (e) { console.warn('sleep pause error', e); }
+}
+
+function startSleepTimer({ minutes = null, endOfTrack = false } = {}) {
+    clearSleepTimer();
+    if (endOfTrack) {
+        state.sleepTimer = { endOfTrack: true, endsAt: null, minutes: null };
+        if (sleepStatus) {
+            sleepStatus.classList.remove('hidden');
+            sleepStatus.textContent = '😴 Sleep: at end of current track';
+        }
+        // Listen for one 'ended' event via interval polling
+        sleepIntervalId = setInterval(() => {
+            const ap = document.getElementById('audio-player');
+            const ap2 = document.getElementById('audio-player-2');
+            if (ap && ap.ended || ap2 && ap2.ended) {
+                fireSleepPause();
+                clearSleepTimer();
+            }
+        }, 500);
+        return;
+    }
+    if (!minutes || minutes <= 0) return;
+    const endsAt = Date.now() + minutes * 60_000;
+    state.sleepTimer = { endOfTrack: false, endsAt, minutes };
+    if (sleepStatus) sleepStatus.classList.remove('hidden');
+    sleepIntervalId = setInterval(() => {
+        const remaining = endsAt - Date.now();
+        if (remaining <= 0) {
+            fireSleepPause();
+            clearSleepTimer();
+            if (sleepSelect) sleepSelect.value = '0';
+            return;
+        }
+        if (sleepStatus) sleepStatus.textContent = `😴 Sleep in ${formatRemaining(remaining)}`;
+    }, 1000);
+}
+
+if (sleepSelect) {
+    sleepSelect.addEventListener('change', () => {
+        const v = sleepSelect.value;
+        if (v === '0') { clearSleepTimer(); showToast('Sleep timer off'); return; }
+        if (v === 'eot') { startSleepTimer({ endOfTrack: true }); showToast('Sleep: end of current track'); return; }
+        const mins = parseInt(v, 10);
+        if (!Number.isNaN(mins) && mins > 0) {
+            startSleepTimer({ minutes: mins });
+            showToast(`Sleep timer: ${mins} min`);
+        }
+    });
+}
+
+// Keyboard: N adds 15 minutes to the timer (or starts one)
+on('sleepTimerNudge', (mins) => {
+    const addMs = (mins || 15) * 60_000;
+    const t = state.sleepTimer;
+    if (t && t.endsAt) {
+        const newMins = Math.round((t.endsAt - Date.now() + addMs) / 60_000);
+        startSleepTimer({ minutes: Math.max(1, newMins) });
+        showToast(`Sleep +${mins} min (total ~${newMins}m)`);
+        if (sleepSelect) sleepSelect.value = String(newMins >= 5 && newMins <= 120 ? newMins : 0);
+    } else {
+        startSleepTimer({ minutes: mins || 15 });
+        showToast(`Sleep timer: ${mins || 15} min`);
+        if (sleepSelect) sleepSelect.value = String(mins || 15);
+    }
+});
+
+// ========== ADVANCED PLAYBACK SETTINGS ==========
+(function initPlaybackSettings() {
+    const slider = $('#settings-speed-slider');
+    const valueEl = $('#settings-speed-value');
+    const preserveCb = $('#settings-preserve-pitch');
+
+    if (slider && valueEl) {
+        const current = Number(state.playbackSpeed) || 1.0;
+        slider.value = String(current);
+        valueEl.textContent = current.toFixed(2) + 'x';
+        slider.addEventListener('input', () => {
+            const v = parseFloat(slider.value);
+            if (Number.isFinite(v)) {
+                valueEl.textContent = v.toFixed(2) + 'x';
+                // Let playback module handle clamping + persistence
+                emit('setPlaybackSpeed', v);
+            }
+        });
+    }
+
+    if (preserveCb) {
+        preserveCb.checked = state.preservesPitch !== false;
+        preserveCb.addEventListener('change', () => {
+            state.preservesPitch = preserveCb.checked;
+            localStorage.setItem('freedify_preserves_pitch', String(preserveCb.checked));
+            emit('preservesPitchChanged');
+            showToast(preserveCb.checked ? 'Preserving pitch' : 'Not preserving pitch (chipmunk mode)');
+        });
+    }
+})();
+
+// ========== DIAGNOSTICS ==========
+$('#diagnostics-btn')?.addEventListener('click', async () => {
+    const results = [];
+    const check = (name, ok, detail = '') => results.push({ name, ok, detail });
+    try {
+        // 1. Backend /health
+        const t0 = performance.now();
+        const res = await fetch('/api/health').catch(() => null);
+        if (res) {
+            const dt = (performance.now() - t0).toFixed(0);
+            check('Backend /api/health', res.ok, res.ok ? `${dt}ms` : `HTTP ${res.status}`);
+        } else {
+            check('Backend /api/health', false, 'No response');
+        }
+
+        // 2. localStorage usable
+        try {
+            localStorage.setItem('__freedify_diag__', '1');
+            localStorage.removeItem('__freedify_diag__');
+            check('localStorage', true, 'OK');
+        } catch (e) {
+            check('localStorage', false, String(e));
+        }
+
+        // 3. Audio element ready
+        const ap = document.getElementById('audio-player');
+        check('HTMLAudioElement', !!ap, ap ? `ready; rate=${ap.playbackRate}` : 'missing');
+
+        // 4. MediaSession
+        check('MediaSession API', 'mediaSession' in navigator, 'mediaSession' in navigator ? 'available' : 'missing');
+
+        // 5. Service worker
+        check('ServiceWorker', 'serviceWorker' in navigator, 'serviceWorker' in navigator ? 'registered' : 'unavailable');
+
+        // 6. State integrity
+        check('State: queue array', Array.isArray(state.queue), `length=${state.queue.length}`);
+        check('State: library array', Array.isArray(state.library), `length=${state.library.length}`);
+    } catch (e) {
+        check('Diagnostics', false, String(e));
+    }
+
+    const okCount = results.filter(r => r.ok).length;
+    const lines = results.map(r => `${r.ok ? '✓' : '✗'} ${r.name}${r.detail ? ` — ${r.detail}` : ''}`);
+    const header = `🩺 Diagnostics: ${okCount}/${results.length} passed`;
+    alert([header, '', ...lines].join('\n'));
+    console.groupCollapsed(header);
+    results.forEach(r => console.log(r));
+    console.groupEnd();
+});
+
+// ========== SELF-HEALING: GLOBAL ERROR HANDLER ==========
+// Log unhandled errors to console with context, and show a soft toast so users
+// know something hiccupped (without nuking playback).  Repeated storms are
+// rate-limited so we never drown the user in toasts.
+(function installSelfHealingErrorHandlers() {
+    let lastToastAt = 0;
+    let suppressedCount = 0;
+
+    function handle(kind, message, error) {
+        try {
+            console.warn(`[self-heal:${kind}]`, message, error || '');
+        } catch {}
+        const now = Date.now();
+        if (now - lastToastAt < 5000) {
+            suppressedCount++;
+            return;
+        }
+        lastToastAt = now;
+        const extra = suppressedCount > 0 ? ` (+${suppressedCount} more suppressed)` : '';
+        suppressedCount = 0;
+        try { showToast(`⚠️ ${message}${extra}`); } catch {}
+    }
+
+    window.addEventListener('error', (e) => {
+        // Ignore noisy 3rd-party errors we can't fix
+        const src = e?.filename || '';
+        if (src && !src.startsWith(location.origin) && !src.startsWith('/')) return;
+        handle('error', e?.message || 'Unknown error', e?.error);
+    });
+
+    window.addEventListener('unhandledrejection', (e) => {
+        const reason = e?.reason;
+        const msg = (reason && (reason.message || reason.toString())) || 'Unhandled promise rejection';
+        handle('promise', msg, reason);
+    });
+})();
