@@ -3105,6 +3105,141 @@ body {
     background: rgba(20, 184, 166, 0.22) !important;
 }
 
+/* Storage / audio cache settings */
+.settings-hint {
+    font-size: 0.78rem;
+    color: var(--text-tertiary);
+    margin: 4px 2px 8px;
+    line-height: 1.4;
+}
+
+.cache-size-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+}
+
+.cache-size-label {
+    flex: 1;
+    font-size: 0.9rem;
+    color: var(--text-primary);
+}
+
+.cache-size-input.settings-input {
+    width: 90px;
+    flex: 0 0 90px;
+    text-align: right;
+}
+
+.cache-btn-row {
+    display: flex;
+    gap: 8px;
+}
+
+.cache-btn-save {
+    flex: 1;
+    width: auto;
+    background: rgba(99, 102, 241, 0.13);
+    color: var(--accent-light);
+}
+.cache-btn-save:hover {
+    background: rgba(99, 102, 241, 0.25) !important;
+}
+.cache-btn-save:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.cache-btn-clear {
+    flex: 1;
+    width: auto;
+    background: rgba(239, 68, 68, 0.1);
+    color: #f87171;
+}
+.cache-btn-clear:hover {
+    background: rgba(239, 68, 68, 0.2) !important;
+}
+.cache-btn-clear:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.cache-toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.cache-toggle-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.cache-toggle-title {
+    font-size: 0.9rem;
+    color: var(--text-primary);
+}
+
+.cache-toggle-text .settings-hint {
+    margin: 0;
+}
+
+.cache-toggle-row .toggle-switch {
+    flex: 0 0 auto;
+}
+
+/* Library folder picker */
+.folder-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 4px 0 8px;
+}
+
+.folder-input.settings-input {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.82rem;
+}
+
+.folder-browse-btn {
+    flex: 0 0 auto;
+    width: auto;
+    background: rgba(99, 102, 241, 0.13);
+    color: var(--accent-light);
+    white-space: nowrap;
+}
+.folder-browse-btn:hover {
+    background: rgba(99, 102, 241, 0.25) !important;
+}
+.folder-browse-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.folder-move-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 2px 10px;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.folder-move-row input[type="checkbox"] {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    accent-color: var(--accent);
+    cursor: pointer;
+}
+
 /* Theme grid inside settings */
 .settings-theme-grid {
     display: grid;

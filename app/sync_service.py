@@ -8,7 +8,21 @@ import socket
 import asyncio
 import time
 import logging
-from zeroconf import ServiceInfo, Zeroconf, ServiceBrowser, ServiceListener
+
+_ZEROCONF_AVAILABLE = False
+ServiceInfo = Zeroconf = ServiceBrowser = ServiceListener = None
+
+def _lazy_load_zeroconf():
+    global _ZEROCONF_AVAILABLE, ServiceInfo, Zeroconf, ServiceBrowser, ServiceListener
+    if _ZEROCONF_AVAILABLE:
+        return True
+    try:
+        from zeroconf import ServiceInfo as _SI, Zeroconf as _ZC, ServiceBrowser as _SB, ServiceListener as _SL
+        ServiceInfo, Zeroconf, ServiceBrowser, ServiceListener = _SI, _ZC, _SB, _SL
+        _ZEROCONF_AVAILABLE = True
+        return True
+    except Exception:
+        return False
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +39,16 @@ def get_local_ip() -> str:
 
 class SyncService:
     def __init__(self):
-        self._zeroconf: Zeroconf | None = None
-        self._info: ServiceInfo | None = None
+        self._zeroconf = None
+        self._info = None
         self.clients: set = set()
         self._clients_lock = asyncio.Lock()
 
     def _start_advertising_sync(self, port: int = 8000):
         """Synchronous inner — must be run in executor from async context."""
+        if not _lazy_load_zeroconf():
+            logger.warning("zeroconf not available — mDNS advertising disabled")
+            return
         try:
             hostname = socket.gethostname()
             local_ip = get_local_ip()
@@ -75,6 +92,8 @@ class SyncService:
         return await loop.run_in_executor(None, self._discover_sync, timeout)
 
     def _discover_sync(self, timeout: float) -> list[dict]:
+        if not _lazy_load_zeroconf():
+            return []
         results = []
 
         class _Listener(ServiceListener):

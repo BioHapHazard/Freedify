@@ -245,6 +245,7 @@ const settingsClose = $('#settings-close');
 
 export function openSettingsModal() {
     settingsModal?.classList.remove('hidden');
+    loadCacheConfig();
 }
 
 export function closeSettingsModal() {
@@ -322,6 +323,211 @@ themeOptions.forEach(opt => {
     });
 });
 
+// ========== STORAGE / AUDIO CACHE (inside Settings Modal) ==========
+const cacheUsageEl = $('#cache-usage');
+const cacheSizeInput = $('#cache-size-input');
+const cacheSizeSave = $('#cache-size-save');
+const cacheClearBtn = $('#cache-clear-btn');
+const libraryToggle = $('#library-mode-toggle');
+const libraryFolderInput = $('#library-folder-input');
+const libraryFolderBrowse = $('#library-folder-browse');
+const libraryFolderSave = $('#library-folder-save');
+const libraryMoveCheckbox = $('#library-move-checkbox');
+const libraryMoveLabel = $('#library-move-label');
+const libraryMoveRow = $('#library-move-row');
+
+// Smallest cap the server allows (MB). Refreshed from the server on load.
+let cacheMinMb = 500;
+
+function formatSize(mb) {
+    // Show GB for anything >= 1 GB, else MB. mb is a number.
+    if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
+    return `${Math.round(mb)} MB`;
+}
+
+function renderCacheStats(stats) {
+    if (!stats) return;
+    cacheMinMb = stats.min_mb || 500;
+
+    if (libraryToggle) libraryToggle.checked = !!stats.library_mode;
+
+    if (cacheUsageEl) {
+        const tracks = stats.file_count === 1 ? '1 track' : `${stats.file_count} tracks`;
+        let txt = `Cache: ${formatSize(stats.used_mb)} of ${formatSize(stats.max_mb)} — ${tracks}.`;
+        if (stats.library_mode || stats.library_track_count > 0) {
+            const lt = stats.library_track_count === 1 ? '1 track' : `${stats.library_track_count} tracks`;
+            txt += `  •  Library: ${formatSize(stats.library_size_mb)} — ${lt}.`;
+        }
+        cacheUsageEl.textContent = txt;
+    }
+    if (cacheSizeInput && document.activeElement !== cacheSizeInput) {
+        // Show the cap in GB (1 decimal), and set the min attribute from the server floor.
+        cacheSizeInput.min = (cacheMinMb / 1024).toFixed(1);
+        cacheSizeInput.value = (stats.max_mb / 1024).toFixed(1);
+    }
+
+    // Library folder + move option
+    if (libraryFolderInput && document.activeElement !== libraryFolderInput && stats.cache_dir) {
+        libraryFolderInput.value = stats.cache_dir;
+    }
+    const libCount = stats.library_track_count || 0;
+    if (libraryMoveLabel) {
+        const t = libCount === 1 ? '1 track' : `${libCount} tracks`;
+        libraryMoveLabel.textContent = `Move my current library (${t}) to the new folder`;
+    }
+    // Only offer the move option when there's actually something to move
+    if (libraryMoveRow) libraryMoveRow.style.display = libCount > 0 ? '' : 'none';
+}
+
+libraryToggle?.addEventListener('change', async () => {
+    const enabled = libraryToggle.checked;
+    libraryToggle.disabled = true;
+    try {
+        const res = await fetch('/api/cache/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ library_mode: enabled }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            showToast('Could not change Library mode');
+            libraryToggle.checked = !enabled;
+            return;
+        }
+        renderCacheStats(data);
+        showToast(enabled
+            ? 'Library mode ON — tracks saved permanently, organized by Artist / Album'
+            : 'Library mode OFF — using the temporary cache');
+    } catch (e) {
+        showToast('Could not change Library mode');
+        libraryToggle.checked = !enabled;
+    } finally {
+        libraryToggle.disabled = false;
+    }
+});
+
+async function loadCacheConfig() {
+    try {
+        const res = await fetch('/api/cache/config');
+        if (!res.ok) return;
+        renderCacheStats(await res.json());
+    } catch (e) {
+        // Non-fatal: leave the static hint text in place
+    }
+}
+
+// ----- Library folder: Browse (native OS dialog) + Save (+ optional move) -----
+libraryFolderBrowse?.addEventListener('click', async () => {
+    const original = libraryFolderBrowse.textContent;
+    libraryFolderBrowse.disabled = true;
+    libraryFolderBrowse.textContent = 'Opening…';
+    try {
+        const res = await fetch('/api/library/pick-folder');
+        const data = await res.json();
+        if (data && data.path) {
+            libraryFolderInput.value = data.path;
+            showToast('Folder selected — click Save Folder to apply');
+        } else if (data && data.available === false) {
+            showToast('Folder picker unavailable here — type the path manually');
+        }
+        // else: user cancelled the dialog — do nothing
+    } catch (e) {
+        showToast('Could not open folder picker — type the path manually');
+    } finally {
+        libraryFolderBrowse.disabled = false;
+        libraryFolderBrowse.textContent = original;
+    }
+});
+
+libraryFolderSave?.addEventListener('click', async () => {
+    const path = (libraryFolderInput?.value || '').trim();
+    if (!path) {
+        showToast('Enter or browse to a folder first');
+        return;
+    }
+    const move = !!(libraryMoveCheckbox && libraryMoveCheckbox.checked &&
+                    libraryMoveRow && libraryMoveRow.style.display !== 'none');
+    const original = libraryFolderSave.textContent;
+    libraryFolderSave.disabled = true;
+    libraryFolderSave.textContent = move ? 'Moving…' : 'Saving…';
+    try {
+        const res = await fetch('/api/library/folder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path, move }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            showToast(data.detail || 'Could not set the library folder');
+            return;
+        }
+        if (libraryMoveCheckbox) libraryMoveCheckbox.checked = false;
+        renderCacheStats(data);
+        if (move && typeof data.moved === 'number') {
+            showToast(`Library folder set — moved ${data.moved} file${data.moved === 1 ? '' : 's'}`);
+        } else {
+            showToast('Library folder updated');
+        }
+    } catch (e) {
+        showToast('Could not set the library folder');
+    } finally {
+        libraryFolderSave.disabled = false;
+        libraryFolderSave.textContent = original;
+    }
+});
+
+cacheSizeSave?.addEventListener('click', async () => {
+    const gb = parseFloat(cacheSizeInput?.value);
+    if (isNaN(gb) || gb <= 0) {
+        showToast('Enter a valid cache size in GB');
+        return;
+    }
+    const mb = Math.round(gb * 1024);
+    if (mb < cacheMinMb) {
+        showToast(`Minimum cache size is ${formatSize(cacheMinMb)}`);
+        cacheSizeInput.value = (cacheMinMb / 1024).toFixed(1);
+        return;
+    }
+    cacheSizeSave.disabled = true;
+    try {
+        const res = await fetch('/api/cache/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ max_size_mb: mb }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            showToast(data.detail || 'Could not update cache size');
+            return;
+        }
+        renderCacheStats(data);
+        showToast(`Cache limit set to ${formatSize(data.max_mb)}`);
+    } catch (e) {
+        showToast('Could not update cache size');
+    } finally {
+        cacheSizeSave.disabled = false;
+    }
+});
+
+cacheClearBtn?.addEventListener('click', async () => {
+    if (!confirm('Clear all cached audio? Tracks will re-download on next play.')) return;
+    cacheClearBtn.disabled = true;
+    try {
+        const res = await fetch('/api/cache/clear', { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) {
+            showToast('Could not clear cache');
+            return;
+        }
+        renderCacheStats(data);
+        showToast(`Cleared ${formatSize(data.freed_mb)} (${data.removed} files)`);
+    } catch (e) {
+        showToast('Could not clear cache');
+    } finally {
+        cacheClearBtn.disabled = false;
+    }
+});
+
 // ========== HiFi MODE ==========
 const hifiBtn = $('#hifi-btn');
 
@@ -343,9 +549,9 @@ export function updateHifiButtonUI() {
             hifiBtn.classList.toggle('hi-res', state.hiResMode);
 
             if (state.hiResMode) {
-                const qualityLabel = state.hiResQuality === '5' ? '192kHz/24-bit' : '96kHz/24-bit';
+                const qualityLabel = state.hiResQuality === '27' ? '192kHz/24-bit' : '96kHz/24-bit';
                 hifiBtn.title = `Hi-Res Mode ON (${qualityLabel})`;
-                hifiBtn.textContent = state.hiResQuality === '5' ? 'Hi-Res+' : 'Hi-Res';
+                hifiBtn.textContent = state.hiResQuality === '27' ? 'Hi-Res+' : 'Hi-Res';
             } else {
                 hifiBtn.title = 'HiFi Mode ON (16-bit)';
                 hifiBtn.textContent = 'HiFi';
@@ -358,14 +564,14 @@ if (hifiBtn) {
     hifiBtn.addEventListener('click', () => {
         if (!state.hiResMode) {
             state.hiResMode = true;
-            state.hiResQuality = '6';
+            state.hiResQuality = '7';
             showToast('Hi-Res Mode ON — 96kHz / 24-bit', 3000);
-        } else if (state.hiResQuality === '6') {
-            state.hiResQuality = '5';
+        } else if (state.hiResQuality === '7') {
+            state.hiResQuality = '27';
             showToast('Hi-Res MAX — 192kHz / 24-bit', 3000);
         } else {
             state.hiResMode = false;
-            state.hiResQuality = '6';
+            state.hiResQuality = '7';
             showToast('HiFi Mode ON — 16-bit Audio', 3000);
         }
         localStorage.setItem('freedify_hires', state.hiResMode);

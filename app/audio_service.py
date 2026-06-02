@@ -38,25 +38,31 @@ if os.name == 'nt' and FFMPEG_PATH == "ffmpeg":
                 FFMPEG_PATH = os.path.join(root, "ffmpeg.exe")
                 break
 
-# List of Tidal API endpoints with fallback (ordered by reliability/weight)
+# List of Tidal hifi-api endpoints with fallback.
+# These are community-hosted reverse proxies in front of a logged-in Tidal session.
+# They share the same hifi-api schema (/search/, /track/, /trackManifests/) but only
+# instances whose upstream Tidal token is alive can actually return a stream manifest;
+# the rest answer search but 403 on /track/ ("Upstream API error").
+# Ordering: known streaming-capable instances first. Live status is refreshed at
+# runtime from TIDAL_UPTIME_FEED (see update_tidal_apis).
 TIDAL_APIS = [
-    "https://triton.squid.wtf",           # Primary - squid-api (weight 30)
-    "https://hifi-one.spotisaver.net",    # spotisaver cluster (weight 20)
-    "https://hifi-two.spotisaver.net",    # spotisaver cluster (weight 20)
-    "https://tidal.kinoplus.online",      # kinoplus (weight 20)
-    "https://tidal-api.binimum.org",      # binimum (weight 10)
-    "https://hund.qqdl.site",             # qqdl cluster (weight 15)
-    "https://katze.qqdl.site",
-    "https://maus.qqdl.site",
-    "https://vogel.qqdl.site",
-    "https://wolf.qqdl.site",
+    "https://hifi.binimum.org",            # hifi-api v2.10 — streaming-capable (DASH FLAC)
+    "https://eu-central.monochrome.tf",    # monochrome v2.10 (EU)
+    "https://us-west.monochrome.tf",       # monochrome v2.10 (US)
+    "https://hifi-api.kennyy.com.br",      # hifi-api v2.10
+    "https://api.monochrome.tf",           # monochrome official (v2.5)
+    "https://monochrome-api.samidy.com",   # monochrome mirror (v2.3)
+    "https://tidal.squid.wtf",             # squid.wtf Tidal proxy
 ]
 
+# Live health/instance feed (JSON). Lists currently-up api/streaming instances.
+TIDAL_UPTIME_FEED = "https://tidal-uptime.geeked.wtf/"
+
 # ============================================================
-# FEATURE FLAGS — Flip to True when these services come back online
+# FEATURE FLAGS
 # ============================================================
-ENABLE_QOBUZ = False   # Qobuz via squid.wtf — currently returning errors
-ENABLE_DAB   = False   # Dab Music — currently returning errors
+ENABLE_QOBUZ = True    # Qobuz via dab.yeet.su / dabmusic.xyz / squid.wtf
+ENABLE_DAB   = False   # Dab Music standalone — folded into Qobuz fallback chain
 
 # Parallel proxy racing timeout (seconds per attempt)
 PROXY_RACE_TIMEOUT = 8.0
@@ -411,102 +417,165 @@ class AudioService:
             logger.error(f"Tidal search error: {e}")
             return None
     
-    async def get_tidal_download_url_from_api(self, api_url: str, track_id: int, quality: str = "LOSSLESS") -> Optional[str]:
-        """Get download URL from a specific Tidal API."""
+    async def get_tidal_download_url_from_api(self, api_url: str, track_id: int, quality: str = "LOSSLESS") -> Optional[dict]:
+        """Resolve a playable FLAC source from a single Tidal hifi-api instance.
+
+        Returns a structured dict describing how to obtain the audio, or None:
+          {"kind": "url",  "url": "https://...flac"}            — direct/signed FLAC file (BTS manifest or legacy)
+          {"kind": "dash", "manifest": "<MPD xml>",             — MPEG-DASH manifest; caller must remux via ffmpeg
+                           "bit_depth": 16, "sample_rate": 44100}
+
+        Modern hifi-api (v2.x) returns Tidal's base64 manifest. For LOSSLESS/HI_RES
+        the manifest is usually MPEG-DASH XML (fMP4 FLAC segments); occasionally a
+        BTS-JSON manifest with a single direct URL. Dead-token instances answer 403.
+        """
         import base64
         import json as json_module
-        
+
         try:
             full_url = f"{api_url}/track/?id={track_id}&quality={quality}"
             logger.debug(f"Trying API: {api_url} (quality={quality})")
-            
+
             response = await self.client.get(full_url, timeout=30.0)
-            
+
             if response.status_code != 200:
-                logger.warning(f"API {api_url} returned {response.status_code}")
+                # 403 "Upstream API error" = this instance's Tidal token is dead
+                logger.warning(f"Tidal proxy {api_url} returned {response.status_code} (quality={quality})")
                 return None
-            
-            # Check if we got HTML instead of JSON
+
             content_type = response.headers.get("content-type", "")
             if "html" in content_type.lower():
-                logger.warning(f"API {api_url} returned HTML instead of JSON")
+                logger.warning(f"Tidal proxy {api_url} returned HTML instead of JSON")
                 return None
-            
+
             try:
                 data = response.json()
             except Exception:
-                logger.warning(f"API {api_url} returned invalid JSON")
+                logger.warning(f"Tidal proxy {api_url} returned invalid JSON")
                 return None
-            
-            # Handle API v2.0 format with manifest
-            if isinstance(data, dict) and "version" in data and "data" in data:
-                inner_data = data.get("data", {})
-                manifest_b64 = inner_data.get("manifest")
-                
-                if manifest_b64:
-                    try:
-                        manifest_json = base64.b64decode(manifest_b64).decode('utf-8')
-                        if not manifest_json or not manifest_json.strip():
-                            # Empty manifest = track not available in this quality on this proxy
-                            logger.debug(f"{api_url}: empty manifest for quality={quality} (track likely not available in hi-res)")
-                            return None
-                        manifest = json_module.loads(manifest_json)
-                        urls = manifest.get("urls", [])
-                        
-                        if urls:
-                            download_url = urls[0]
-                            logger.info(f"Got download URL from {api_url} (v2.0 manifest)")
-                            self.working_api = api_url
-                            return download_url
-                        else:
-                            logger.debug(f"{api_url}: manifest decoded but no URLs for quality={quality}")
-                            return None
-                    except Exception as e:
-                        logger.debug(f"{api_url}: manifest decode issue for quality={quality}: {e}")
-                        return None
-                else:
-                    # No manifest field at all
-                    logger.debug(f"{api_url}: no manifest in response for quality={quality}")
+
+            # --- hifi-api v2.x format: {"version": ..., "data": {...}} ---
+            if isinstance(data, dict) and "data" in data and isinstance(data["data"], dict):
+                inner = data["data"]
+                manifest_b64 = inner.get("manifest")
+                manifest_mime = (inner.get("manifestMimeType") or "").lower()
+                bit_depth = inner.get("bitDepth")
+                sample_rate = inner.get("sampleRate")
+
+                if not manifest_b64:
+                    logger.debug(f"{api_url}: no manifest field for quality={quality}")
                     return None
-            
-            # Handle legacy format (list with OriginalTrackUrl)
+
+                try:
+                    decoded = base64.b64decode(manifest_b64).decode("utf-8", errors="replace")
+                except Exception as e:
+                    logger.debug(f"{api_url}: manifest base64 decode failed: {e}")
+                    return None
+
+                if not decoded.strip():
+                    logger.debug(f"{api_url}: empty manifest for quality={quality}")
+                    return None
+
+                # DASH manifest (fMP4 FLAC segments) — needs ffmpeg remux
+                if "dash" in manifest_mime or decoded.lstrip().startswith("<?xml") or "<MPD" in decoded:
+                    logger.info(f"Got DASH FLAC manifest from {api_url} (quality={quality}, {bit_depth}bit/{sample_rate}Hz)")
+                    self.working_api = api_url
+                    return {"kind": "dash", "manifest": decoded,
+                            "bit_depth": bit_depth, "sample_rate": sample_rate}
+
+                # BTS-JSON manifest — direct signed FLAC URL
+                try:
+                    manifest = json_module.loads(decoded)
+                    urls = manifest.get("urls", [])
+                    if urls:
+                        logger.info(f"Got direct FLAC URL from {api_url} (BTS manifest, quality={quality})")
+                        self.working_api = api_url
+                        return {"kind": "url", "url": urls[0]}
+                except Exception:
+                    pass
+
+                logger.debug(f"{api_url}: manifest present but no usable URL/DASH (quality={quality})")
+                return None
+
+            # --- Legacy formats (list / dict with direct URL) ---
             if isinstance(data, list):
                 for item in data:
-                    if isinstance(item, dict) and "OriginalTrackUrl" in item:
-                        logger.info(f"Got download URL from {api_url} (legacy format)")
+                    if isinstance(item, dict) and item.get("OriginalTrackUrl"):
                         self.working_api = api_url
-                        return item["OriginalTrackUrl"]
-            
-            # Handle other dict formats
+                        return {"kind": "url", "url": item["OriginalTrackUrl"]}
             elif isinstance(data, dict):
-                if "OriginalTrackUrl" in data:
+                if data.get("OriginalTrackUrl"):
                     self.working_api = api_url
-                    return data["OriginalTrackUrl"]
-                if "url" in data:
+                    return {"kind": "url", "url": data["OriginalTrackUrl"]}
+                if data.get("url"):
                     self.working_api = api_url
-                    return data["url"]
-            
-            logger.debug(f"API {api_url} returned unexpected format for quality={quality}")
+                    return {"kind": "url", "url": data["url"]}
+
+            logger.debug(f"Tidal proxy {api_url} returned unexpected format for quality={quality}")
             return None
-            
+
         except httpx.TimeoutException:
-            logger.warning(f"API {api_url} timed out")
+            logger.warning(f"Tidal proxy {api_url} timed out")
             return None
         except Exception as e:
-            logger.warning(f"API {api_url} error: {e}")
+            logger.warning(f"Tidal proxy {api_url} error: {e}")
             return None
     
     async def update_tidal_apis(self):
-        """Update available Tidal APIs from status server.
-        
-        NOTE: The status.monochrome.tf domain is no longer resolving (DNS dead).
-        This function is now a no-op. The hardcoded TIDAL_APIS list at the top of
-        this file is the authoritative source. Update that list manually when
-        proxies change.
+        """Refresh the live Tidal instance pool from TIDAL_UPTIME_FEED.
+
+        The feed (geeked.wtf) reports which hifi-api instances are currently up,
+        split into "streaming" (can return a manifest) and "api" (search only) and
+        "down". We promote streaming-capable instances to the front of TIDAL_APIS so
+        racing hits a working stream source first. Falls back silently to the
+        hardcoded list if the feed is unreachable. Refreshes at most every 15 min.
         """
-        if hasattr(self, '_apis_updated') and self._apis_updated:
+        global TIDAL_APIS
+        import time as _time
+
+        now = _time.time()
+        last = getattr(self, "_apis_updated_at", 0)
+        if now - last < 900:  # 15 min cache
             return
-        self._apis_updated = True
+        self._apis_updated_at = now
+
+        try:
+            resp = await self.client.get(TIDAL_UPTIME_FEED, timeout=8.0)
+            if resp.status_code != 200:
+                return
+            data = resp.json()
+
+            def _urls(category):
+                out = []
+                for e in data.get(category, []) or []:
+                    if isinstance(e, dict) and e.get("url"):
+                        out.append(e["url"].rstrip("/"))
+                return out
+
+            streaming = _urls("streaming")   # can actually return a manifest
+            api_up = _urls("api")            # up, but maybe search-only
+            down = set(_urls("down"))
+
+            if not streaming and not api_up:
+                return
+
+            # Order: live streaming instances first, then live api instances, then
+            # any hardcoded entries not flagged down (as a last resort).
+            ordered = []
+            for u in streaming + api_up:
+                if u not in ordered:
+                    ordered.append(u)
+            for u in TIDAL_APIS:
+                if u.rstrip("/") not in ordered and u.rstrip("/") not in down:
+                    ordered.append(u.rstrip("/"))
+
+            if ordered:
+                TIDAL_APIS = ordered
+                logger.info(f"Tidal pool refreshed from uptime feed: "
+                            f"{len(streaming)} streaming, {len(api_up)} api, {len(down)} down. "
+                            f"Top: {ordered[:3]}")
+        except Exception as e:
+            logger.debug(f"Tidal uptime feed refresh skipped: {e}")
 
     def embed_metadata(self, audio_data: bytes, format: str, metadata: Dict) -> bytes:
         """Embed metadata into audio file (MP3/FLAC/ALAC/WAV)."""
@@ -617,12 +686,15 @@ class AudioService:
             if 'tmp_path' in locals() and os.path.exists(tmp_path): os.remove(tmp_path)
             return audio_data
 
-    async def get_tidal_download_url(self, track_id: int, quality: str = "LOSSLESS") -> Optional[str]:
-        """Get download URL from Tidal APIs with parallel racing for speed.
-        
+    async def get_tidal_download_url(self, track_id: int, quality: str = "LOSSLESS") -> Optional[dict]:
+        """Resolve a FLAC source from the Tidal proxy pool with parallel racing.
+
         Races the top PROXY_RACE_COUNT proxies in parallel and takes the first
         successful result. Falls back to remaining proxies sequentially if all
         raced proxies fail.
+
+        Returns a structured dict (see get_tidal_download_url_from_api):
+          {"kind": "url", "url": ...} or {"kind": "dash", "manifest": ..., ...}
         """
         
         # Update APIs list (only on first call, cached after that)
@@ -670,11 +742,214 @@ class AudioService:
         
         logger.error(f"All Tidal APIs failed for track {track_id} (quality={quality})")
         return None
-    
+
+    def _remux_dash_to_flac_sync(self, manifest_xml: str) -> Optional[bytes]:
+        """Remux a Tidal MPEG-DASH manifest into a single FLAC file (lossless, no re-encode).
+
+        The DASH manifest references fMP4 FLAC segments by absolute, signed HTTPS URLs.
+        ffmpeg fetches every segment and concatenates them, then `-c:a copy` rewrites
+        the result as a plain .flac container — bit-perfect, no quality loss.
+
+        Runs synchronously (blocking); call via run_in_executor. Returns FLAC bytes or None.
+        """
+        mpd_path = None
+        out_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".mpd", delete=False, mode="w", encoding="utf-8") as mpd:
+                mpd.write(manifest_xml)
+                mpd_path = mpd.name
+            out_path = mpd_path + ".flac"
+
+            cmd = [
+                FFMPEG_PATH,
+                "-y",
+                "-loglevel", "error",
+                # DASH segments are fetched over HTTPS; whitelist the protocols ffmpeg needs
+                "-protocol_whitelist", "file,http,https,tcp,tls,crypto",
+                "-i", mpd_path,
+                "-c:a", "copy",     # bit-perfect: no re-encoding
+                "-f", "flac",
+                out_path,
+            ]
+            process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            _, stderr = process.communicate(timeout=180)
+
+            if process.returncode != 0:
+                logger.error(f"DASH->FLAC remux failed: {stderr.decode('utf-8', errors='ignore')[:400]}")
+                return None
+
+            if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
+                logger.error("DASH->FLAC remux produced no output")
+                return None
+
+            with open(out_path, "rb") as f:
+                data = f.read()
+
+            # Sanity check: must be a real FLAC stream, not a 30s preview / error page
+            if data[:4] != b"fLaC":
+                logger.error(f"DASH->FLAC remux output is not FLAC (magic={data[:4]!r})")
+                return None
+
+            logger.info(f"DASH->FLAC remux OK: {len(data)/1024/1024:.2f} MB")
+            return data
+        except subprocess.TimeoutExpired:
+            logger.error("DASH->FLAC remux timed out (180s)")
+            return None
+        except FileNotFoundError:
+            logger.error("FFmpeg not found — cannot remux DASH FLAC")
+            return None
+        except Exception as e:
+            logger.error(f"DASH->FLAC remux error: {e}")
+            return None
+        finally:
+            for p in (mpd_path, out_path):
+                if p and os.path.exists(p):
+                    try:
+                        os.unlink(p)
+                    except Exception:
+                        pass
+
+    def _parse_dash_segments(self, manifest_xml: str) -> Optional[tuple]:
+        """Parse a Tidal SegmentTemplate DASH manifest into (init_url, [media_urls]).
+
+        Returns None if the manifest isn't the expected single-Representation
+        SegmentTemplate+SegmentTimeline shape (caller then falls back to ffmpeg).
+        """
+        try:
+            init_m = re.search(r'initialization="([^"]+)"', manifest_xml)
+            media_m = re.search(r'media="([^"]+)"', manifest_xml)
+            if not init_m or not media_m:
+                return None
+            init_url = init_m.group(1)
+            media_tmpl = media_m.group(1)
+
+            start_m = re.search(r'startNumber="(\d+)"', manifest_xml)
+            start_number = int(start_m.group(1)) if start_m else 1
+
+            # Count segments from the SegmentTimeline: each <S> contributes (1 + r)
+            seg_count = 0
+            for s in re.finditer(r'<S\b[^>]*\bd="\d+"[^>]*/?>', manifest_xml):
+                r_m = re.search(r'\br="(\d+)"', s.group(0))
+                seg_count += 1 + (int(r_m.group(1)) if r_m else 0)
+            if seg_count <= 0:
+                return None
+
+            media_urls = [
+                media_tmpl.replace("$Number$", str(n))
+                for n in range(start_number, start_number + seg_count)
+            ]
+            return init_url, media_urls
+        except Exception as e:
+            logger.debug(f"DASH manifest parse failed: {e}")
+            return None
+
+    def _pipe_remux_to_flac_sync(self, fmp4_data: bytes) -> Optional[bytes]:
+        """Remux a concatenated fMP4 (FLAC) byte stream to .flac via ffmpeg stdin pipe."""
+        out_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".flac", delete=False) as t:
+                out_path = t.name
+            cmd = [FFMPEG_PATH, "-y", "-loglevel", "error",
+                   "-i", "pipe:0", "-c:a", "copy", "-f", "flac", out_path]
+            proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            _, stderr = proc.communicate(input=fmp4_data, timeout=180)
+            if proc.returncode != 0:
+                logger.error(f"pipe remux failed: {stderr.decode('utf-8', errors='ignore')[:400]}")
+                return None
+            if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
+                return None
+            with open(out_path, "rb") as f:
+                data = f.read()
+            if data[:4] != b"fLaC":
+                logger.error(f"pipe remux output not FLAC (magic={data[:4]!r})")
+                return None
+            return data
+        except subprocess.TimeoutExpired:
+            logger.error("pipe remux timed out (180s)")
+            return None
+        except Exception as e:
+            logger.error(f"pipe remux error: {e}")
+            return None
+        finally:
+            if out_path and os.path.exists(out_path):
+                try:
+                    os.unlink(out_path)
+                except Exception:
+                    pass
+
+    async def remux_dash_to_flac(self, manifest_xml: str) -> Optional[bytes]:
+        """Remux a Tidal DASH manifest into FLAC bytes (lossless, no re-encode).
+
+        Fast path: parse the SegmentTemplate, download init + all media segments
+        concurrently, concatenate, and pipe to ffmpeg. This avoids ffmpeg's slow
+        sequential per-segment HTTPS fetch (which can take 10s+ on long tracks).
+        Falls back to letting ffmpeg read the .mpd directly if parsing fails.
+        """
+        parsed = self._parse_dash_segments(manifest_xml)
+        if parsed:
+            init_url, media_urls = parsed
+            try:
+                sem = asyncio.Semaphore(16)
+
+                async def fetch(idx, url):
+                    async with sem:
+                        r = await self.client.get(url, timeout=30.0)
+                        r.raise_for_status()
+                        return idx, r.content
+
+                # init segment is index -1 so it sorts first
+                tasks = [fetch(-1, init_url)] + [fetch(i, u) for i, u in enumerate(media_urls)]
+                results = await asyncio.gather(*tasks)
+                results.sort(key=lambda x: x[0])
+                blob = b"".join(chunk for _, chunk in results)
+                logger.info(f"DASH fetched {len(media_urls)} segments concurrently ({len(blob)/1024/1024:.1f} MB), remuxing")
+
+                loop = asyncio.get_event_loop()
+                data = await loop.run_in_executor(None, self._pipe_remux_to_flac_sync, blob)
+                if data:
+                    logger.info(f"DASH->FLAC (fast path) OK: {len(data)/1024/1024:.2f} MB")
+                    return data
+                logger.warning("Fast-path pipe remux failed; falling back to ffmpeg manifest fetch")
+            except Exception as e:
+                logger.warning(f"Concurrent DASH fetch failed ({e}); falling back to ffmpeg manifest fetch")
+
+        # Fallback: let ffmpeg fetch segments itself from the .mpd
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._remux_dash_to_flac_sync, manifest_xml)
+
     async def _fetch_tidal_cover(self, cover_uuid: str) -> Optional[bytes]:
         """Fetch Tidal album art (cached)."""
         url = f"https://resources.tidal.com/images/{cover_uuid.replace('-', '/')}/1280x1280.jpg"
         return await self._cached_fetch_art(url)
+
+    # album_id -> 'YYYY' release year, to avoid refetching per track of the same album
+    _album_year_cache: dict = {}
+
+    async def _get_tidal_album_year(self, album_id) -> str:
+        """Look up an album's release year from the Tidal album endpoint (cached)."""
+        if not album_id:
+            return ""
+        if album_id in self._album_year_cache:
+            return self._album_year_cache[album_id]
+        year = ""
+        try:
+            token = await self.get_tidal_token()
+            r = await self.client.get(
+                f"https://api.tidal.com/v1/albums/{album_id}",
+                headers={"Authorization": f"Bearer {token}"},
+                params={"countryCode": "US"},
+                timeout=8.0,
+            )
+            if r.status_code == 200:
+                rd = (r.json().get("releaseDate") or "")[:4]
+                if rd.isdigit():
+                    year = rd
+        except Exception as e:
+            logger.debug(f"Tidal album year lookup failed for {album_id}: {e}")
+        # Cache even empty results to avoid repeat lookups (bounded)
+        if len(self._album_year_cache) < 500:
+            self._album_year_cache[album_id] = year
+        return year
 
     async def get_deezer_track_info(self, isrc: str) -> Optional[Dict]:
         """Get Deezer track info from ISRC."""
@@ -740,33 +1015,46 @@ class AudioService:
             logger.error(f"Metadata extraction error: {e}")
             return {}
     
-    async def fetch_flac(self, isrc: str, query: str = "", hires: bool = True, hires_quality: str = "6", source: str = "") -> Optional[Union[tuple[bytes, Dict], tuple[str, Dict]]]:
+    async def fetch_flac(self, isrc: str, query: str = "", hires: bool = True, hires_quality: str = "7", source: str = "") -> Optional[Union[tuple[bytes, Dict], tuple[str, Dict]]]:
         """Fetch FLAC audio and metadata with optimized search pipeline.
-        
+
         # ============================================================
-        # STREAM FETCH PRIORITY CHAIN (v2 — Optimized)
+        # STREAM FETCH PRIORITY CHAIN (v4 — lossless only, no YouTube)
         # ============================================================
         #
-        # Hi-Res OFF (HiFi only — fast path, no Tidal proxy overhead):
-        #   1. Deezer FLAC (16-bit, fastest, most reliable)
-        #   2. Tidal LOSSLESS fallback (16-bit via proxy racing)
+        # Hi-Res OFF (HiFi only):
+        #   1. Tidal LOSSLESS (16-bit FLAC) — DASH manifest remuxed via ffmpeg
+        #   2. Qobuz quality 6 (16-bit FLAC CD quality) — if its proxies recover
         #
         # Hi-Res ON:
-        #   1. Tidal HI_RES_LOSSLESS (24-bit, parallel top-3 proxies, 8s timeout)
-        #   2. Tidal LOSSLESS fallback (16-bit, same racing, 8s timeout)
-        #   3. [BYPASSED] Qobuz Hi-Res — set ENABLE_QOBUZ=True to re-enable
-        #   4. [BYPASSED] Dab Hi-Res   — set ENABLE_DAB=True to re-enable
-        #   5. Deezer FLAC (16-bit, always-available fallback)
+        #   1. Tidal HI_RES_LOSSLESS (24-bit FLAC)
+        #   2. Tidal LOSSLESS fallback (16-bit)
+        #   3. Qobuz Hi-Res (quality 7=24-bit/96kHz or 27=24-bit/192kHz)
         #
-        # The toggle is checked at the TOP — the correct path is chosen
-        # upfront so no unnecessary API calls are made.
-        # Every step has an explicit timeout.
-        # Album art is NOT fetched here — frontend already has it from search.
+        # Tidal streaming is served by the hifi-api proxy pool. The live instance
+        # (currently hifi.binimum.org) returns a base64 MPEG-DASH manifest of fMP4
+        # FLAC segments; we remux it to a single .flac with ffmpeg (-c:a copy, lossless).
+        # Qobuz quality codes: 27=24-bit/192k, 7=24-bit/96k, 6=16-bit CD, 5=MP3.
+        #
+        # NOTE: No lossy/YouTube fallback by design — this app streams lossless only.
         # ============================================================
         """
-        
-        deezer_info = None  # Cache for potential metadata use
-        
+
+        deezer_info = None
+
+        # --- Direct Qobuz routing: qobuz_ prefixed IDs skip search ---
+        if isrc.startswith("qobuz_"):
+            logger.info(f"Qobuz track ID detected — streaming directly")
+            from app.qobuz_service import qobuz_service
+            qobuz_quality = hires_quality if hires else "6"
+            qobuz_id = isrc.replace("qobuz_", "")
+            stream_url = await qobuz_service.get_stream_url(qobuz_id, quality=qobuz_quality)
+            if stream_url:
+                meta = {"title": query or "Unknown", "artists": "", "album": "", "is_hi_res": hires}
+                return (stream_url, meta)
+            logger.error(f"Qobuz direct stream failed for: {isrc}")
+            return None
+
         # --- Pre-processing: Normalize ISRC / extract real ISRC from Deezer IDs ---
         if isrc.startswith("dz_"):
             deezer_track_id = isrc.replace("dz_", "")
@@ -782,74 +1070,68 @@ class AudioService:
                             isrc = extracted_isrc
                             query = query or f"{deezer_info.get('title', '')} {deezer_info.get('artist', {}).get('name', '')}"
                         else:
-                            logger.warning("No ISRC in Deezer track — will try Deezer download directly")
+                            query = query or f"{deezer_info.get('title', '')} {deezer_info.get('artist', {}).get('name', '')}"
+                            logger.warning("No ISRC in Deezer track — will search by query")
             except Exception as e:
                 logger.error(f"Deezer track info fetch error: {e}")
-        
+
         if isrc.startswith("query:"):
             query = isrc.replace("query:", "")
             isrc = ""
             logger.info(f"ListenBrainz track — searching by query: {query}")
-        
+
         # ============================================================
-        # PATH SELECTION: Check hi-res toggle at the TOP
+        # PATH SELECTION
         # ============================================================
-        
+
         if not hires:
             # ========== FAST PATH: Hi-Res OFF ==========
-            logger.info(f"[FAST PATH] Hi-Res OFF — skipping Tidal/Qobuz/Dab, going to Deezer first")
-            
-            # Step 1: Deezer (fast, reliable 16-bit FLAC)
-            result = await self._fetch_from_deezer(isrc, query, deezer_info)
+            logger.info(f"[FAST PATH] Hi-Res OFF — Tidal LOSSLESS first, Qobuz fallback")
+
+            # Step 1: Tidal LOSSLESS (16-bit)
+            result = await self._fetch_from_tidal(isrc, query, quality="LOSSLESS", is_hires=False)
             if result:
                 return result
-            
-            # Step 2: Tidal LOSSLESS fallback (16-bit)
-            if not isrc.startswith("dz_"):
-                logger.info("[FAST PATH] Deezer failed, trying Tidal LOSSLESS as fallback")
-                result = await self._fetch_from_tidal(isrc, query, quality="LOSSLESS", is_hires=False)
+
+            # Step 2: Qobuz 16-bit FLAC (only if its proxies are reachable)
+            if ENABLE_QOBUZ:
+                logger.info("[FAST PATH] Tidal failed, trying Qobuz 16-bit")
+                result = await self._fetch_from_qobuz(query or isrc, "6")
                 if result:
                     return result
-            
-            logger.error(f"[FAST PATH] Could not fetch audio for: {isrc or query}")
+
+            logger.error(f"[FAST PATH] Could not fetch lossless audio for: {isrc or query}")
             return None
-        
+
         else:
             # ========== HI-RES PATH: Hi-Res ON ==========
             logger.info(f"[HI-RES PATH] Hi-Res ON — trying Tidal HI_RES_LOSSLESS first")
-            
+
             # Step 1: Tidal HI_RES_LOSSLESS (24-bit, parallel racing)
-            if not isrc.startswith("dz_"):
-                result = await self._fetch_from_tidal(isrc, query, quality="HI_RES_LOSSLESS", is_hires=True)
+            result = await self._fetch_from_tidal(isrc, query, quality="HI_RES_LOSSLESS", is_hires=True)
+            if result:
+                return result
+
+            # Step 2: Tidal LOSSLESS fallback (16-bit)
+            logger.info("[HI-RES PATH] HI_RES_LOSSLESS failed, falling back to Tidal LOSSLESS (16-bit)")
+            result = await self._fetch_from_tidal(isrc, query, quality="LOSSLESS", is_hires=False)
+            if result:
+                return result
+
+            # Step 3: Qobuz Hi-Res
+            if ENABLE_QOBUZ:
+                logger.info("[HI-RES PATH] Tidal failed, trying Qobuz Hi-Res")
+                result = await self._fetch_from_qobuz(query or isrc, hires_quality)
                 if result:
                     return result
-                
-                # Step 2: EXPLICIT FALLBACK — Tidal LOSSLESS (16-bit)
-                # This is the critical fix: if hi-res isn't available, fall back gracefully
-                logger.info("[HI-RES PATH] HI_RES_LOSSLESS failed, falling back to Tidal LOSSLESS (16-bit)")
-                result = await self._fetch_from_tidal(isrc, query, quality="LOSSLESS", is_hires=False)
-                if result:
-                    return result
-            
-            # Step 3: [BYPASSED] Qobuz Hi-Res — re-enable by setting ENABLE_QOBUZ = True
-            if ENABLE_QOBUZ and source != "tidal":
-                result = await self._fetch_from_qobuz(query, hires_quality)
-                if result:
-                    return result
-            
-            # Step 4: [BYPASSED] Dab Hi-Res — re-enable by setting ENABLE_DAB = True
+
+            # Step 4: Dab Music (if separately enabled)
             if ENABLE_DAB and source != "tidal":
                 result = await self._fetch_from_dab(isrc, query, hires_quality)
                 if result:
                     return result
-            
-            # Step 5: Deezer FLAC (16-bit, always-available fallback)
-            logger.info("[HI-RES PATH] All hi-res sources failed, falling back to Deezer 16-bit")
-            result = await self._fetch_from_deezer(isrc, query, deezer_info)
-            if result:
-                return result
-            
-            logger.error(f"[HI-RES PATH] Could not fetch audio for: {isrc or query}")
+
+            logger.error(f"[HI-RES PATH] Could not fetch lossless audio for: {isrc or query}")
             return None
     
     # ============================================================
@@ -857,64 +1139,116 @@ class AudioService:
     # ============================================================
     
     async def _fetch_from_tidal(self, isrc: str, query: str, quality: str = "LOSSLESS", is_hires: bool = False) -> Optional[tuple]:
-        """Try to fetch a stream URL from Tidal proxies."""
+        """Fetch lossless audio from the Tidal hifi-api proxy pool.
+
+        Returns either:
+          (stream_url, meta)  — direct/signed FLAC URL (BTS manifest); main.py proxies it
+          (flac_bytes, meta)  — DASH manifest remuxed to a complete FLAC file
+        """
         try:
             tidal_track = await self.search_tidal_by_isrc(isrc, query)
             if not tidal_track:
                 logger.warning(f"Tidal search returned no results for: {isrc or query}")
                 return None
-            
+
             track_id = tidal_track.get("id")
-            download_url = await self.get_tidal_download_url(track_id, quality=quality)
-            
-            if not download_url:
-                logger.warning(f"Tidal proxy returned no URL for track {track_id} (quality={quality})")
+            resolved = await self.get_tidal_download_url(track_id, quality=quality)
+
+            if not resolved:
+                logger.warning(f"Tidal proxy returned no source for track {track_id} (quality={quality})")
                 return None
-            
-            logger.info(f"✓ Tidal stream found (quality={quality}): {download_url[:80]}...")
-            
-            # Build metadata (includes album art for downloads — streaming ignores it)
+
+            # Resolve the album's real release year. Tidal's *search* result omits the
+            # album release date, so look it up from the album endpoint (cached per album)
+            # — this populates both the FLAC year tag and the library "Album (Year)" folder.
+            album_obj = tidal_track.get("album", {}) or {}
+            year = album_obj.get("releaseDate") or ""
+            if not year:
+                year = await self._get_tidal_album_year(album_obj.get("id"))
+
+            # Build metadata (album art is embedded for the DASH/bytes path)
             meta = {
                 "title": tidal_track.get("title"),
                 "artists": ", ".join([a["name"] for a in tidal_track.get("artists", [])]),
-                "album": tidal_track.get("album", {}).get("title"),
-                "year": tidal_track.get("album", {}).get("releaseDate"),
+                "album": album_obj.get("title"),
+                "year": year,
                 "track_number": tidal_track.get("trackNumber"),
                 "is_hi_res": is_hires,
             }
-            
-            # Fetch album art (needed for download metadata embedding)
+
+            kind = resolved.get("kind")
+
+            # --- DASH manifest: remux fMP4 FLAC segments into one FLAC file ---
+            if kind == "dash":
+                bit_depth = resolved.get("bit_depth")
+                # Trust the manifest's reported bit depth for the Hi-Res badge
+                if bit_depth and int(bit_depth) >= 24:
+                    meta["is_hi_res"] = True
+                elif bit_depth:
+                    meta["is_hi_res"] = False
+
+                logger.info(f"✓ Tidal DASH manifest for track {track_id} (quality={quality}, {bit_depth}bit) — remuxing")
+                flac_bytes = await self.remux_dash_to_flac(resolved["manifest"])
+                if not flac_bytes:
+                    logger.warning(f"DASH remux failed for track {track_id}")
+                    return None
+
+                # Embed tags + album art into the remuxed FLAC
+                cover_uuid = tidal_track.get("album", {}).get("cover")
+                if cover_uuid:
+                    meta["album_art_data"] = await self._fetch_tidal_cover(cover_uuid)
+                try:
+                    flac_bytes = await asyncio.get_event_loop().run_in_executor(
+                        None, self.embed_metadata, flac_bytes, "flac", meta
+                    )
+                except Exception as e:
+                    logger.debug(f"FLAC tag embed skipped: {e}")
+
+                return (flac_bytes, meta)
+
+            # --- Direct/signed URL (BTS manifest or legacy) ---
+            download_url = resolved.get("url")
+            if not download_url:
+                return None
+            logger.info(f"✓ Tidal direct FLAC URL (quality={quality}): {download_url[:80]}...")
+
             cover_uuid = tidal_track.get("album", {}).get("cover")
             if cover_uuid:
                 meta["album_art_data"] = await self._fetch_tidal_cover(cover_uuid)
-            
+
             return (download_url, meta)
         except Exception as e:
             logger.error(f"Tidal fetch error: {e}")
             return None
     
     async def _fetch_from_qobuz(self, query: str, hires_quality: str) -> Optional[tuple]:
-        """Try to fetch a stream URL from Qobuz (currently bypassed)."""
+        """Try to fetch a stream URL from Qobuz via multiple proxy endpoints."""
         try:
             from app.qobuz_service import qobuz_service
-            
+
             if not query:
                 return None
-            
-            qobuz_tracks = await qobuz_service.search_tracks(query, limit=1)
-            if not qobuz_tracks:
-                return None
-            
-            qobuz_track = qobuz_tracks[0]
+
+            qobuz_track = None
+            is_isrc = query and len(query) == 12 and query[:2].isalpha() and query[2:].isalnum()
+            if is_isrc:
+                qobuz_track = await qobuz_service.search_by_isrc(query)
+
+            if not qobuz_track:
+                qobuz_tracks = await qobuz_service.search_tracks(query, limit=1)
+                if not qobuz_tracks:
+                    return None
+                qobuz_track = qobuz_tracks[0]
+
             logger.info(f"Qobuz search hit: {qobuz_track.get('name')} by {qobuz_track.get('artists')}")
-            
+
             qobuz_id = qobuz_track.get('id', '').replace('qobuz_', '')
             stream_url = await qobuz_service.get_stream_url(qobuz_id, quality=hires_quality)
-            
+
             if not stream_url:
                 return None
-            
-            logger.info(f"✓ Qobuz stream URL found (quality={hires_quality}): {stream_url[:40]}...")
+
+            logger.info(f"Qobuz stream URL found (quality={hires_quality}): {stream_url[:60]}...")
             metadata = {
                 "title": qobuz_track.get("name"),
                 "artists": qobuz_track.get("artists"),
@@ -922,13 +1256,47 @@ class AudioService:
                 "year": qobuz_track.get("release_date", "")[:4] if qobuz_track.get("release_date") else "",
                 "album_art_url": qobuz_track.get("album_art"),
                 "album_art_data": None,
-                "is_hi_res": True
+                "is_hi_res": hires_quality in ("7", "27"),
             }
             return (stream_url, metadata)
         except Exception as e:
             logger.error(f"Qobuz fetch error: {e}")
             return None
     
+    async def _fetch_from_ytmusic(self, query: str) -> Optional[tuple]:
+        """Last-resort fallback: search YouTube Music and extract audio via yt-dlp."""
+        try:
+            from app.ytmusic_service import ytmusic_service
+            results = await ytmusic_service.search_tracks(query, limit=1)
+            if not results:
+                return None
+
+            track = results[0]
+            video_id = track.get("video_id") or track.get("id", "").replace("ytm_", "")
+            if not video_id:
+                return None
+
+            logger.info(f"YouTube Music fallback: {track.get('name')} by {track.get('artists')} (vid={video_id})")
+            youtube_url = f"https://music.youtube.com/watch?v={video_id}"
+            loop = asyncio.get_event_loop()
+            stream_url = await loop.run_in_executor(None, self._get_stream_url, youtube_url)
+
+            if not stream_url:
+                return None
+
+            metadata = {
+                "title": track.get("name"),
+                "artists": track.get("artists"),
+                "album": track.get("album"),
+                "album_art_url": track.get("album_art"),
+                "album_art_data": None,
+                "is_hi_res": False,
+            }
+            return (stream_url, metadata)
+        except Exception as e:
+            logger.error(f"YouTube Music fallback error: {e}")
+            return None
+
     async def _fetch_from_dab(self, isrc: str, query: str, hires_quality: str) -> Optional[tuple]:
         """Try to fetch a stream URL from Dab Music (currently bypassed)."""
         try:

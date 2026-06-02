@@ -136,6 +136,53 @@
                         <label for="file-input" class="settings-item" style="cursor: pointer;">Add Local Songs (MP3/FLAC)</label>
                         <input type="file" id="file-input" accept="audio/*" multiple class="hidden">
                     </div>
+                    <!-- Storage / Audio Cache -->
+                    <div class="settings-section">
+                        <h3 class="settings-section-title">Storage</h3>
+
+                        <!-- Library folder -->
+                        <label class="cache-size-label" for="library-folder-input">Library folder</label>
+                        <div class="folder-row">
+                            <input type="text" id="library-folder-input" class="settings-input folder-input"
+                                   placeholder="e.g. D:\Music" spellcheck="false" autocomplete="off">
+                            <button class="settings-item folder-browse-btn" id="library-folder-browse" title="Browse for a folder">Browse…</button>
+                        </div>
+                        <label class="folder-move-row" id="library-move-row">
+                            <input type="checkbox" id="library-move-checkbox">
+                            <span id="library-move-label">Move my current library to the new folder</span>
+                        </label>
+                        <div class="cache-btn-row">
+                            <button class="settings-item cache-btn-save" id="library-folder-save">Save Folder</button>
+                        </div>
+
+                        <div class="settings-divider"></div>
+
+                        <!-- Library mode toggle -->
+                        <div class="cache-toggle-row">
+                            <div class="cache-toggle-text">
+                                <span class="cache-toggle-title">Library mode</span>
+                                <span class="settings-hint" id="library-mode-hint">Save played tracks permanently, organized by Artist / Album.</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="library-mode-toggle">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+
+                        <div class="settings-divider"></div>
+
+                        <p class="settings-hint" id="cache-usage">Played tracks are cached for instant replay.</p>
+                        <div class="cache-size-row">
+                            <label for="cache-size-input" class="cache-size-label">Max cache size (GB)</label>
+                            <input type="number" id="cache-size-input" class="settings-input cache-size-input"
+                                   min="0.5" step="0.5" inputmode="decimal" aria-label="Maximum cache size in gigabytes">
+                        </div>
+                        <p class="settings-hint">Minimum 0.5 GB. The cap applies to the temporary cache; your Library (when on) is permanent and never auto-deleted.</p>
+                        <div class="cache-btn-row">
+                            <button class="settings-item cache-btn-save" id="cache-size-save">Save</button>
+                            <button class="settings-item cache-btn-clear" id="cache-clear-btn">Clear Cache</button>
+                        </div>
+                    </div>
                     <!-- Appearance -->
                     <div class="settings-section">
                         <h3 class="settings-section-title">Appearance</h3>

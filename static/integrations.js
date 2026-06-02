@@ -2278,7 +2278,7 @@ function exportAllData() {
             settings: {
                 theme: localStorage.getItem('freedify_theme') || '',
                 hiRes: localStorage.getItem('freedify_hires') || 'false',
-                hiResQuality: localStorage.getItem('freedify_hires_quality') || '6',
+                hiResQuality: localStorage.getItem('freedify_hires_quality') || '7',
                 crossfade: localStorage.getItem('freedify_crossfade') || 'false',
                 lastfmUsername: localStorage.getItem('freedify_lastfm_user') || '',
                 eqSettings: localStorage.getItem('freedify_eq') || '',

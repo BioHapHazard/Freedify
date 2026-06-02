@@ -54,7 +54,12 @@ from app.audiobookbay_service import search_audiobooks, get_audiobook_details, i
 from app.premiumize_service import create_transfer, check_transfer_status, list_folder_contents, search_my_files, delete_item
 from app.soundcloud_service import search_tracks as soundcloud_search_tracks
 
-from app.cache import cleanup_cache, periodic_cleanup, is_cached, get_cache_path
+from app.cache import (
+    cleanup_cache, periodic_cleanup, is_cached, get_cache_path, cache_file,
+    get_cache_stats, set_max_cache_size_mb, clear_cache, MIN_CACHE_SIZE_MB,
+    get_library_mode, set_library_mode, save_to_library, find_in_library,
+    get_cache_dir, set_cache_dir, validate_cache_dir, move_library,
+)
 
 # ========== SUPABASE CLOUD SYNC ==========
 import jwt as pyjwt
@@ -225,6 +230,122 @@ async def get_config():
     return {
         "google_client_id": os.environ.get("GOOGLE_CLIENT_ID", ""),
     }
+
+# ========== AUDIO CACHE MANAGEMENT ==========
+
+class CacheConfigUpdate(BaseModel):
+    max_size_mb: Optional[int] = None
+    library_mode: Optional[bool] = None
+
+@app.get("/api/cache/config")
+async def cache_config():
+    """Return current audio-cache usage, limits, and library-mode status."""
+    return get_cache_stats()
+
+@app.post("/api/cache/config")
+async def update_cache_config(body: CacheConfigUpdate):
+    """Update cache settings: size cap (MB) and/or Library mode.
+
+    - max_size_mb: floored at MIN_CACHE_SIZE_MB, no upper bound. Lowering it triggers
+      an immediate cleanup of the ephemeral cache (never the organized library).
+    - library_mode: when true, played tracks are saved permanently into an organized
+      Artist/Album collection instead of the ephemeral cache.
+    """
+    if body.max_size_mb is not None:
+        if body.max_size_mb < MIN_CACHE_SIZE_MB:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cache cap must be at least {MIN_CACHE_SIZE_MB} MB"
+            )
+        set_max_cache_size_mb(body.max_size_mb)
+        # Enforce the new cap right away (may evict least-recently-used cache files)
+        await cleanup_cache()
+
+    if body.library_mode is not None:
+        set_library_mode(body.library_mode)
+
+    return get_cache_stats()
+
+@app.post("/api/cache/clear")
+async def clear_audio_cache():
+    """Delete all cached audio files to reclaim disk space."""
+    result = clear_cache()
+    result.update(get_cache_stats())
+    return result
+
+
+def _is_remote_deploy() -> bool:
+    """True on hosted/remote deploys (Render) where server-side folder picking is
+    meaningless (no display, ephemeral disk) and exposing the filesystem is unsafe."""
+    return bool(os.environ.get("RENDER") or os.environ.get("RENDER_EXTERNAL_URL"))
+
+
+def _pick_folder_sync() -> str:
+    """Open a native OS folder dialog on the server machine; return the chosen path ('' if cancelled)."""
+    import tkinter as tk
+    from tkinter import filedialog
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        root.attributes("-topmost", True)
+    except Exception:
+        pass
+    try:
+        path = filedialog.askdirectory(title="Select Freedify library folder")
+    finally:
+        try:
+            root.destroy()
+        except Exception:
+            pass
+    return path or ""
+
+@app.get("/api/library/pick-folder")
+async def pick_library_folder():
+    """Pop a native OS folder picker on the machine running Freedify and return the path.
+
+    Only works when the server has a desktop session (i.e. running on your own
+    computer). Returns {available: false} on headless/remote deploys so the UI can
+    fall back to manual path entry.
+    """
+    if _is_remote_deploy():
+        return {"available": False, "path": "", "detail": "Folder picker unavailable on remote deployments"}
+    try:
+        loop = asyncio.get_event_loop()
+        path = await asyncio.wait_for(loop.run_in_executor(None, _pick_folder_sync), timeout=180.0)
+        return {"available": True, "path": path}
+    except asyncio.TimeoutError:
+        return {"available": True, "path": "", "detail": "Folder picker timed out"}
+    except Exception as e:
+        logger.warning(f"Native folder picker failed: {e}")
+        return {"available": False, "path": "", "detail": "Native folder picker not available on this server"}
+
+class LibraryFolderUpdate(BaseModel):
+    path: str
+    move: bool = False
+
+@app.post("/api/library/folder")
+async def set_library_folder(body: LibraryFolderUpdate):
+    """Set the cache/library root folder. If move=true, relocate the existing
+    collection into the new folder first (merge-aware)."""
+    if _is_remote_deploy():
+        raise HTTPException(status_code=403, detail="Changing the library folder is disabled on remote deployments")
+
+    err = validate_cache_dir(body.path)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+
+    move_result = None
+    if body.move:
+        # Move from the CURRENT folder into the new one before switching over
+        move_result = await asyncio.get_event_loop().run_in_executor(None, move_library, body.path)
+
+    set_cache_dir(body.path)
+
+    stats = get_cache_stats()
+    if move_result is not None:
+        stats["moved"] = move_result.get("moved", 0)
+        stats["move_skipped"] = move_result.get("skipped", 0)
+    return stats
 
 # ========== SPOTIFY OAUTH ENDPOINTS ==========
 
@@ -586,14 +707,21 @@ async def get_track(track_id: str):
 
 @app.get("/api/album/{album_id}")
 async def get_album(album_id: str):
+    # Support Qobuz Albums
+    if album_id.startswith("qobuz_"):
+        from app.qobuz_service import qobuz_service
+        album = await qobuz_service.get_album(album_id)
+        if album: return album
+        raise HTTPException(status_code=404, detail="Qobuz album not found")
+
     # Support Dab Albums
     if album_id.startswith("dab_"):
         from app.dab_service import dab_service
         album = await dab_service.get_album(album_id)
         if album: return album
         raise HTTPException(status_code=404, detail="Dab album not found")
-        
-    # Support Deezer Albums (fallback logic handled in dedicated service or here)
+
+    # Support Deezer Albums
     if album_id.startswith("dz_"):
         album = await deezer_service.get_album(album_id)
         if album: return album
@@ -703,7 +831,7 @@ async def stream_audio(
     isrc: str,
     q: Optional[str] = Query(None, description="Search query hint"),
     hires: bool = Query(True, description="Prefer Hi-Res 24-bit audio"),
-    hires_quality: str = Query("6", description="Hi-Res quality: 5=192kHz/24bit, 6=96kHz/24bit"),
+    hires_quality: str = Query("7", description="Hi-Res quality: 27=192kHz/24bit, 7=96kHz/24bit"),
     source: Optional[str] = Query(None, description="Source of the track")
 ):
     """Stream audio for a track by ISRC."""
@@ -842,7 +970,18 @@ async def stream_audio(
                 media_type=mime_type,
                 headers={"Accept-Ranges": "bytes", "Cache-Control": "public, max-age=86400"}
             )
-        
+
+        # Check the organized library (Library mode) — served with byte-range support
+        if get_library_mode():
+            lib_path = find_in_library(isrc)
+            if lib_path:
+                logger.info(f"Serving from library: {lib_path}")
+                return FileResponse(
+                    str(lib_path),
+                    media_type=mime_type,
+                    headers={"Accept-Ranges": "bytes", "Cache-Control": "public, max-age=86400"}
+                )
+
         # Check stream URL cache (for seek/range requests on the same track)
         cached = _stream_url_cache.get(isrc)
         if cached:
@@ -870,9 +1009,27 @@ async def stream_audio(
                 _stream_url_cache[isrc] = (target_stream_url, metadata, time.time())
                 logger.info(f"Stream URL cached for {isrc} (TTL={STREAM_CACHE_TTL}s) - is_hi_res={metadata.get('is_hi_res')}")
             else:
-                # It's bytes! Serve directly (no caching needed).
+                # It's bytes (e.g. Tidal DASH remuxed to FLAC). Persist it so subsequent
+                # seek/Range requests are served by a FileResponse (byte-range capable).
+                # In Library mode, save into the organized permanent collection; otherwise
+                # use the flat ephemeral cache. Fall back to flat cache if organizing fails
+                # (e.g. metadata too sparse to build an Artist/Album path).
                 flac_data, metadata = result
-                
+
+                saved_to_library = False
+                if get_library_mode():
+                    try:
+                        if await save_to_library(isrc, flac_data, metadata):
+                            saved_to_library = True
+                    except Exception as e:
+                        logger.warning(f"Could not save to library for {isrc}: {e}")
+
+                if not saved_to_library:
+                    try:
+                        await cache_file(isrc, flac_data, "flac")
+                    except Exception as e:
+                        logger.warning(f"Could not cache remuxed FLAC for {isrc}: {e}")
+
                 headers = {
                     "Accept-Ranges": "bytes",
                     "Content-Length": str(len(flac_data)),
@@ -880,10 +1037,10 @@ async def stream_audio(
                     "Access-Control-Expose-Headers": "X-Audio-Quality, X-Audio-Format, Content-Type, Content-Length",
                     "X-Audio-Format": "FLAC"
                 }
-                
+
                 if metadata and metadata.get("is_hi_res"):
                     headers["X-Audio-Quality"] = "Hi-Res"
-                    
+
                 return Response(
                     content=flac_data,
                     media_type="audio/flac",
@@ -976,7 +1133,7 @@ async def download_audio(
     format: str = Query("mp3", description="Audio format: mp3, flac, aiff, wav, alac"),
     filename: Optional[str] = Query(None, description="Filename"),
     hires: bool = Query(False, description="Enable Hi-Res mode"),
-    hires_quality: str = Query("6", description="Hi-Res quality: 6=96kHz/24bit, 5=192kHz/24bit")
+    hires_quality: str = Query("7", description="Hi-Res quality: 27=192kHz/24bit, 7=96kHz/24bit")
 ):
     """Download audio in specified format."""
     try:

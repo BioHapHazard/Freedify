@@ -7,7 +7,7 @@
  *   markDirty('library');  // after any localStorage write
  */
 
-import { state, safeLoad } from './state.js';
+import { state, safeLoad, normalizeHiResQuality } from './state.js';
 import { emit } from './event-bus.js';
 
 // ========== SYNC MAP ==========
@@ -297,8 +297,9 @@ function _applyStateForKey(key, value) {
             localStorage.setItem('freedify_hires', String(value.hiRes));
         }
         if (value.hiResQuality) {
-            state.hiResQuality = value.hiResQuality;
-            localStorage.setItem('freedify_hires_quality', value.hiResQuality);
+            // Normalize old quality codes ('6'/'5') pulled from other devices
+            state.hiResQuality = normalizeHiResQuality(value.hiResQuality);
+            localStorage.setItem('freedify_hires_quality', state.hiResQuality);
         }
         if (value.volume !== undefined) {
             state.volume = value.volume;

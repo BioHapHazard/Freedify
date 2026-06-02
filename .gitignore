@@ -51,6 +51,8 @@ Thumbs.db
 secrets.json
 *.key
 freedify_settings.json
+freedify_cache_config.json
+freedify_library_index.json
 
 # Tests
 test_*.py

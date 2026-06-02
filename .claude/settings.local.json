@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"c:\\\\Users\\\\aurta\\\\Documents\\\\Squid\\\\spotiflac-main\\\\spotiflac-main\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(Sort-Object)",
+      "WebFetch(domain:squid.wtf)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:deepwiki.com)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/qobuz_service.py'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/audio_service.py'\\).read\\(\\)\\); print\\('audio_service OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/main.py'\\).read\\(\\)\\); print\\('main OK'\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload)",
+      "Bash(curl -s \"http://127.0.0.1:8000/api/search?q=test&type=track&limit=3\")",
+      "Bash(python -m uvicorn app.main:app --host 127.0.0.1 --port 8000)",
+      "Bash(tee server.log)",
+      "Bash(python test_import.py)",
+      "Bash(python '/c/Users/aurta/Documents/Squid/spotiflac-main/spotiflac-main/test_syntax.py')",
+      "Bash(python '/c/Users/aurta/Documents/Squid/spotiflac-main/spotiflac-main/test_import_detailed.py')",
+      "Bash(PYTHONIOENCODING=utf-8 python minimal_test.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python test_full_import.py)",
+      "Bash(PYTHONIOENCODING=utf-8 timeout 60 python test_main_imports.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000)",
+      "Bash(curl -s http://127.0.0.1:8000/api/health)",
+      "Bash(PYTHONIOENCODING=utf-8 timeout 30 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000)",
+      "Bash(curl -s --max-time 5 http://127.0.0.1:8000/api/health)",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(tasklist)",
+      "Bash(PYTHONIOENCODING=utf-8 timeout 10 python -c \"print\\('testing zeroconf import...'\\); from zeroconf import Zeroconf; print\\('zeroconf OK'\\)\")"
+    ]
+  }
+}

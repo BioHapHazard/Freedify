@@ -1,5 +1,10 @@
 # Freedify - Music Streaming Web App
 
+> [!WARNING]
+> **⚠️ Music streaming is currently mostly down.** The free third-party Tidal/Qobuz APIs that Freedify relies on for lossless song streaming are offline right now, so searching for and playing individual **songs and albums** will often fail. This is an **upstream outage, not a bug in Freedify** — these community proxies go down and come back on their own. Just retry playback periodically; it will start working again automatically once the APIs recover (no restart or update needed).
+>
+> **✅ Still working normally:** podcasts, **Phish.in** & **Archive.org** live shows, Jamendo, YouTube Music, imported links (Spotify / SoundCloud / Bandcamp / direct URLs), anything already saved to your **Library**, and all other features.
+
 ```markdown
 *Last updated: March 25, 2026*
 ```

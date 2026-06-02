@@ -6,6 +6,73 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.5.2] - 2026-06-02
+
+### Added
+- **Choose Your Library Folder (Settings > Storage)** — You can now point the library/cache at any folder instead of the default `~/.freedify_cache`:
+  - **Browse…** button opens a native OS folder dialog on the machine running Freedify and fills in the path (falls back to manual entry on headless/remote servers).
+  - Or type/paste an absolute path (e.g. `D:\Music`). The server verifies the folder exists and is writable before switching.
+  - **Move my current library** — optional checkbox that relocates your existing collection into the new folder (merge-aware; keeps the `Artist/Album` structure and updates the index so replays keep working). Shown only when there's something to move.
+  - The chosen folder persists across restarts (stored in `freedify_cache_config.json`; also settable via the `CACHE_DIR` env var).
+
+### Security
+- Folder picking and changing are disabled on remote deployments (Render) where server-side filesystem access is meaningless and unsafe.
+
+### Fixed
+- **Hi-Res quality codes (frontend)** — The HiFi button was still sending the old, inverted quality codes (`6`/`5`), which since the backend correction meant Hi-Res mode requested 16-bit and Hi-Res MAX requested MP3 on the Qobuz path. Now sends the correct codes (`7` = 96kHz/24-bit, `27` = 192kHz/24-bit). A one-time migration remaps any saved/synced value, so existing users (and cloud-synced devices) are corrected automatically. Tidal was unaffected (it keys off the Hi-Res on/off flag, not the numeric code).
+
+---
+
+## [1.5.1] - 2026-06-01
+
+### Added
+- **Library Mode — Build a Permanent Local Collection** — New toggle in **Settings > Storage**. When enabled, every track you play is saved permanently into an organized, media-server-ready folder structure instead of the temporary cache:
+
+  ```
+  <root>/Artist/Album (Year)/## - Title.flac
+  ```
+
+  This is the standard layout auto-detected by Plex, Jellyfin, and Navidrome (track-number prefix keeps album order; year on the album folder). Point your cache directory at a large drive and Freedify doubles as a lossless local media server. Library files are tagged FLAC (artist/album/title/track/year + cover art).
+- **Library is permanent** — Library files live in `Artist/Album` subfolders, which the cache cleanup never touches, so they are **never auto-deleted** by the size cap or TTL. The size cap and **Clear Cache** apply only to the temporary cache, not your collection.
+- **Library stats** — Settings > Storage now shows both temporary-cache usage and Library size / track count. An ISRC index gives instant replays straight from the library with byte-range seeking.
+
+### Notes
+- Library mode is off by default (configurable via `LIBRARY_MODE` env var). Organization applies to lossless music tracks with artist/album/title metadata (the Tidal path); podcasts, audiobooks, and imported links continue to use the flat cache.
+
+---
+
+## [1.5.0] - 2026-06-01
+
+### Fixed
+- **Lossless Streaming Restored (Tidal)** — Music streaming works again. The live hifi-api instance now returns Tidal audio as a base64 **MPEG-DASH manifest** of fragmented-MP4 FLAC segments instead of a single direct URL, which is why playback had been failing. Freedify now detects DASH manifests and remuxes the segments into one FLAC with FFmpeg using `-c:a copy` — **bit-perfect, no re-encoding or quality loss**. Direct-URL (BTS) manifests are still used as-is with zero FFmpeg when an instance provides them.
+- **Live Tidal Instance Pool** — The proxy pool is refreshed at startup and every 15 minutes from the geeked.wtf uptime feed, promoting instances that can actually stream to the front of the race. `hifi.binimum.org` is the current primary; dead-token instances (which answer search but 403 on playback) are deprioritized automatically.
+
+### Added
+- **Adjustable Audio Cache Cap (Settings > Storage)** — Played tracks are cached to disk as full FLAC files for instant replay and seeking. You can now set the cache size limit live in Settings (minimum 500 MB, no upper bound) to build a large local library. Includes a live usage readout and a **Clear Cache** button. The default cap is now **2 GB** (was 500 MB) and is configurable via `MAX_CACHE_SIZE_MB`; the user-set value persists across restarts.
+- **Concurrent DASH Segment Fetch** — DASH segments are downloaded in parallel before remuxing, cutting cold first-play latency roughly in half (~13s → ~7s on a full track). Subsequent plays/seeks are served instantly from the disk cache with byte-range support.
+
+### Changed
+- **Lossless-Only Cascade** — Removed the YouTube Music / yt-dlp fallback that was added in 1.4.9. The streaming cascade is now lossless-only: Tidal (LOSSLESS / HI_RES_LOSSLESS) → Qobuz (if its proxies recover). No lossy sources are used for streaming.
+- **Hi-Res Detection** — The Hi-Res badge is now driven by the actual bit depth reported in the Tidal manifest (24-bit ⇒ Hi-Res) rather than the requested quality tier.
+- **Qobuz Quality Codes Corrected** — Fixed inverted quality codes: `27` = 24-bit/192kHz, `7` = 24-bit/96kHz, `6` = 16-bit CD, `5` = MP3 320.
+
+---
+
+## [1.4.9] - 2026-05-18
+
+### Fixed
+- **Music Streaming Chain Rebuilt** — Replaced dead DeezMate/Deezer download proxy with a multi-source fallback chain: Tidal proxy racing → Qobuz (3 proxy endpoints) → YouTube Music (yt-dlp). Deezer API still used for metadata/ISRC lookups.
+- **Tidal Proxy List Updated** — Added monochrome hifi-api endpoints (api.monochrome.tf, monochrome-api.samidy.com) as top priority. Removed dead spotisaver/binimum/triton endpoints. 8 proxies total with parallel racing.
+- **Qobuz Search** — Qobuz direct API search (ISRC + text) now used as primary, with squid.wtf proxy as fallback. Album search also routes through direct API first.
+- **Server Startup on Python 3.14** — Made zeroconf import lazy to prevent server hang on Python 3.14 (mDNS loads on first use, not at import time).
+
+### Added
+- **Qobuz as Streaming Source** — Enabled Qobuz with 3 proxy stream endpoints and direct ISRC search. Supports Hi-Res 24-bit/192kHz and CD-quality 16-bit FLAC.
+- **Qobuz Album Routing** — `qobuz_` prefixed albums and tracks now route correctly through search, album browse, and stream endpoints.
+- **YouTube Music Fallback** — When Tidal and Qobuz both fail, the streaming chain falls back to YouTube Music search + yt-dlp audio extraction as a last resort.
+
+---
+
 ## [1.4.8] - 2026-04-18
 
 ### Fixed

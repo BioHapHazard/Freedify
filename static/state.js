@@ -13,6 +13,21 @@ export function enforceArrayCap(arr, max) {
     while (arr.length > max) arr.pop();
 }
 
+// Hi-Res quality codes were corrected to match the backend/Qobuz scheme.
+// Old (wrong): '6' = 96kHz/24-bit, '5' = 192kHz/24-bit.
+// New: '7' = 96kHz/24-bit, '27' = 192kHz/24-bit ('6' = 16-bit CD, '5' = MP3).
+export function normalizeHiResQuality(v) {
+    const map = { '6': '7', '5': '27' };
+    return map[v] || v || '7';
+}
+
+// One-time migration of any stored value to the new codes.
+export function migrateHiResQuality() {
+    const migrated = normalizeHiResQuality(localStorage.getItem('freedify_hires_quality'));
+    try { localStorage.setItem('freedify_hires_quality', migrated); } catch {}
+    return migrated;
+}
+
 export const MAX_LIBRARY_SIZE = 2000;
 export const MAX_HISTORY_SIZE = 200;
 
@@ -36,7 +51,7 @@ export const state = {
     scrobbledCurrent: false, // Track if current song was scrobbled
     listenBrainzConfig: { valid: false, username: null }, // LB status
     hiResMode: localStorage.getItem('freedify_hires') !== 'false', // Hi-Res 24-bit mode (Default True)
-    hiResQuality: localStorage.getItem('freedify_hires_quality') || '6', // '6'=96kHz/24bit, '5'=192kHz/24bit
+    hiResQuality: migrateHiResQuality(), // '7'=96kHz/24bit, '27'=192kHz/24bit
     sortOrder: 'newest', // 'newest' or 'oldest' for album sorting
     lastSearchResults: [], // Store last search results for re-rendering
     lastSearchType: 'track', // Store last search type
